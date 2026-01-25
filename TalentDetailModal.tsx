@@ -43,6 +43,7 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
   const [loadingRates, setLoadingRates] = useState(false);
   const [savingRates, setSavingRates] = useState(false);
   const [ratesChanged, setRatesChanged] = useState(false);
+  const [isEditingRates, setIsEditingRates] = useState(false);
 
   // Fetch revenue stats when modal opens
   useEffect(() => {
@@ -51,6 +52,7 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
       fetchRates();
       setActiveTab('profile');
       setRatesChanged(false);
+      setIsEditingRates(false);
     }
   }, [talent, isOpen]);
 
@@ -263,7 +265,7 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
                 <h3 className="text-2xl font-bold text-gray-900 mb-1">{talent.name}</h3>
                 <p className="text-gray-600 mb-2">{talent.category}</p>
                 <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(talent.status)}`}>
-                  {talent.status}
+                  {talent.status.charAt(0).toUpperCase() + talent.status.slice(1).replace('-', ' ')}
                 </span>
               </div>
             </div>
@@ -309,7 +311,7 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
             >
               <DollarSign className="w-4 h-4 inline mr-1.5" />
               Rates
-              {ratesChanged && <span className="ml-1 w-2 h-2 bg-orange-500 rounded-full inline-block" />}
+              {isEditingRates && ratesChanged && <span className="ml-1 w-2 h-2 bg-orange-500 rounded-full inline-block" />}
             </button>
           </nav>
         </div>
@@ -403,9 +405,21 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
               <div className="text-center py-8 text-gray-500">Loading rates...</div>
             ) : (
               <>
-                <p className="text-sm text-gray-600">
-                  Set rates for each deliverable type. Enter the amount in dollars.
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-600">
+                    {isEditingRates ? 'Enter the amount in dollars.' : 'Rate card for this talent.'}
+                  </p>
+                  {!isEditingRates && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={Edit2}
+                      onClick={() => setIsEditingRates(true)}
+                    >
+                      Edit Rates
+                    </Button>
+                  )}
+                </div>
 
                 {Object.entries(deliverablesByPlatform).map(([platform, platformDeliverables]) => (
                   <div key={platform} className="bg-gray-50 rounded-lg overflow-hidden">
@@ -417,33 +431,52 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
                     <div className="p-4 space-y-3">
                       {platformDeliverables.map((deliverable) => (
                         <div key={deliverable.id} className="flex items-center justify-between gap-4">
-                          <label className="text-sm text-gray-700 flex-1">
+                          <span className="text-sm text-gray-700 flex-1">
                             {deliverable.name}
-                          </label>
-                          <div className="relative w-32">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="100"
-                              value={centsToDisplay(rates[deliverable.id])}
-                              onChange={(e) => handleRateChange(deliverable.id, e.target.value)}
-                              placeholder="0"
-                              className="w-full pl-7 pr-3 py-2 text-right text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-                            />
-                          </div>
+                          </span>
+                          {isEditingRates ? (
+                            <div className="relative w-32">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="100"
+                                value={centsToDisplay(rates[deliverable.id])}
+                                onChange={(e) => handleRateChange(deliverable.id, e.target.value)}
+                                placeholder="0"
+                                className="w-full pl-7 pr-3 py-2 text-right text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                              />
+                            </div>
+                          ) : (
+                            <span className="text-sm font-medium text-gray-900 w-32 text-right">
+                              {rates[deliverable.id] ? formatCurrency(rates[deliverable.id]) : '—'}
+                            </span>
+                          )}
                         </div>
                       ))}
                     </div>
                   </div>
                 ))}
 
-                {ratesChanged && (
-                  <div className="flex justify-end pt-2">
+                {isEditingRates && (
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setIsEditingRates(false);
+                        setRatesChanged(false);
+                        fetchRates(); // Reset to saved values
+                      }}
+                    >
+                      Cancel
+                    </Button>
                     <Button
                       icon={Save}
-                      onClick={saveRates}
-                      disabled={savingRates}
+                      onClick={async () => {
+                        await saveRates();
+                        setIsEditingRates(false);
+                      }}
+                      disabled={savingRates || !ratesChanged}
                     >
                       {savingRates ? 'Saving...' : 'Save Rates'}
                     </Button>

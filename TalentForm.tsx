@@ -45,10 +45,6 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
     avatar_url: '',
     bio: '',
     notes: '',
-    rate_post: '',
-    rate_story: '',
-    rate_reel: '',
-    rate_video: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -66,10 +62,6 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
         avatar_url: talent.avatar_url || '',
         bio: talent.bio || '',
         notes: talent.notes || '',
-        rate_post: talent.rate_post ? (talent.rate_post / 100).toString() : '',
-        rate_story: talent.rate_story ? (talent.rate_story / 100).toString() : '',
-        rate_reel: talent.rate_reel ? (talent.rate_reel / 100).toString() : '',
-        rate_video: talent.rate_video ? (talent.rate_video / 100).toString() : '',
       });
     } else {
       // Reset form for new talent
@@ -81,10 +73,6 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
         avatar_url: '',
         bio: '',
         notes: '',
-        rate_post: '',
-        rate_story: '',
-        rate_reel: '',
-        rate_video: '',
       });
     }
     setErrors({});
@@ -139,7 +127,6 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
     setSubmitError(null);
 
     try {
-      // Convert rates from dollars to cents
       const talentData = {
         user_id: user.id,
         name: formData.name.trim(),
@@ -149,10 +136,6 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
         avatar_url: formData.avatar_url.trim() || null,
         bio: formData.bio.trim() || null,
         notes: formData.notes.trim() || null,
-        rate_post: formData.rate_post ? Math.round(parseFloat(formData.rate_post) * 100) : null,
-        rate_story: formData.rate_story ? Math.round(parseFloat(formData.rate_story) * 100) : null,
-        rate_reel: formData.rate_reel ? Math.round(parseFloat(formData.rate_reel) * 100) : null,
-        rate_video: formData.rate_video ? Math.round(parseFloat(formData.rate_video) * 100) : null,
         updated_at: new Date().toISOString(),
       };
 
@@ -246,15 +229,31 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
           />
         </div>
 
-        {/* Avatar URL */}
-        <Input
-          label="Avatar URL"
-          name="avatar_url"
-          value={formData.avatar_url}
-          onChange={handleChange}
-          placeholder="https://example.com/avatar.jpg"
-          helperText="Optional: URL to profile picture"
-        />
+        {/* Avatar Preview */}
+        {formData.avatar_url && (
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+              <img
+                src={formData.avatar_url}
+                alt="Avatar preview"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm text-gray-600">Current avatar</p>
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, avatar_url: '' }))}
+                className="text-sm text-red-600 hover:text-red-700"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Bio */}
         <Textarea
@@ -266,53 +265,6 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
           placeholder="Short bio or description..."
           helperText="Optional: Brief description of the talent"
         />
-
-        {/* Rate Card */}
-        <div className="border-t border-gray-200 pt-4 mt-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">Rate Card (USD)</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Input
-              label="Rate per Post"
-              name="rate_post"
-              type="number"
-              step="0.01"
-              min="0"
-              value={formData.rate_post}
-              onChange={handleChange}
-              placeholder="0.00"
-            />
-            <Input
-              label="Rate per Story"
-              name="rate_story"
-              type="number"
-              step="0.01"
-              min="0"
-              value={formData.rate_story}
-              onChange={handleChange}
-              placeholder="0.00"
-            />
-            <Input
-              label="Rate per Reel"
-              name="rate_reel"
-              type="number"
-              step="0.01"
-              min="0"
-              value={formData.rate_reel}
-              onChange={handleChange}
-              placeholder="0.00"
-            />
-            <Input
-              label="Rate per Video"
-              name="rate_video"
-              type="number"
-              step="0.01"
-              min="0"
-              value={formData.rate_video}
-              onChange={handleChange}
-              placeholder="0.00"
-            />
-          </div>
-        </div>
 
         {/* Notes */}
         <Textarea

@@ -234,10 +234,10 @@ const TalentRoster = () => {
                 <img
                   src={talent.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(talent.name)}`}
                   alt={talent.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                 />
                 <div className="absolute top-3 right-3">
-                  <Badge variant={talent.status === 'active' ? 'success' : 'warning'}>{talent.status}</Badge>
+                  <Badge variant={talent.status === 'active' ? 'success' : 'warning'} className="capitalize">{talent.status.replace('-', ' ')}</Badge>
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
                   <p className="text-white text-sm font-medium">View detailed analytics</p>
