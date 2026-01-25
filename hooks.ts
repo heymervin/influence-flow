@@ -1,0 +1,655 @@
+import { useEffect, useState } from 'react';
+import { supabase } from './supabaseClient';
+import type { Talent, Quote, Deal, Client, Deliverable, TalentRate } from './supabaseClient';
+
+export const useTalents = () => {
+  const [talents, setTalents] = useState<Talent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    console.log('[useTalents] Hook initialized, calling fetchTalents...');
+    fetchTalents();
+  }, []);
+
+  const fetchTalents = async () => {
+    try {
+      console.log('[useTalents] fetchTalents started, setting loading to true');
+      setLoading(true);
+
+      console.log('[useTalents] Calling Supabase API...');
+      const { data, error } = await supabase
+        .from('talents')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      console.log('[useTalents] API response received');
+      console.log('[useTalents] Data:', data);
+      console.log('[useTalents] Error:', error);
+
+      if (error) throw error;
+
+      console.log(`[useTalents] Setting talents: ${data?.length || 0} records`);
+      setTalents(data || []);
+    } catch (err) {
+      console.error('[useTalents] Error fetching talents:', err);
+      setError(err as Error);
+    } finally {
+      console.log('[useTalents] fetchTalents complete, setting loading to false');
+      setLoading(false);
+    }
+  };
+
+  return { talents, loading, error, refetch: fetchTalents };
+};
+
+export const useQuotes = () => {
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    fetchQuotes();
+  }, []);
+
+  const fetchQuotes = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('quotes')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setQuotes(data || []);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching quotes:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { quotes, loading, error, refetch: fetchQuotes };
+};
+
+export const useDashboardStats = () => {
+  const [stats, setStats] = useState({
+    activeQuotes: 0,
+    pendingRevenue: 0,
+    talentRosterCount: 0,
+    winRate: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  const fetchStats = async () => {
+    try {
+      setLoading(true);
+
+      // Fetch active quotes
+      const { data: quotesData } = await supabase
+        .from('quotes')
+        .select('status, total_amount')
+        .in('status', ['draft', 'sent']);
+
+      const activeQuotes = quotesData?.length || 0;
+      const pendingRevenue = quotesData?.reduce((sum, q) => sum + (q.total_amount || 0), 0) || 0;
+
+      // Fetch talent count
+      const { count: talentCount } = await supabase
+        .from('talents')
+        .select('*', { count: 'exact', head: true });
+
+      // Calculate win rate
+      const { data: allQuotes } = await supabase
+        .from('quotes')
+        .select('status');
+
+      const totalQuotes = allQuotes?.length || 0;
+      const acceptedQuotes = allQuotes?.filter(q => q.status === 'accepted').length || 0;
+      const winRate = totalQuotes > 0 ? Math.round((acceptedQuotes / totalQuotes) * 100) : 0;
+
+      setStats({
+        activeQuotes,
+        pendingRevenue: pendingRevenue / 100, // Convert from cents to dollars
+        talentRosterCount: talentCount || 0,
+        winRate,
+      });
+    } catch (err) {
+      console.error('Error fetching dashboard stats:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { stats, loading, refetch: fetchStats };
+};
+
+// Analytics Hooks for Business Intelligence
+
+export const useRevenueStats = () => {
+  const [stats, setStats] = useState({
+    totalRevenue: 0,
+    revenueThisMonth: 0,
+    revenueLastMonth: 0,
+    revenueThisQuarter: 0,
+    revenueLastQuarter: 0,
+    pendingPipeline: 0,
+    avgDealSize: 0,
+    winRate: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRevenueStats();
+  }, []);
+
+  const fetchRevenueStats = async () => {
+    try {
+      setLoading(true);
+
+      const now = new Date();
+      const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+      const thisQuarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      const lastQuarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3 - 3, 1);
+      const lastQuarterEnd = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 0);
+
+      // Total revenue from all deals
+      const { data: allDeals } = await supabase
+        .from('deals')
+        .select('commission_amount');
+
+      const totalRevenue = allDeals?.reduce((sum, d) => sum + (d.commission_amount || 0), 0) || 0;
+
+      // Revenue this month
+      const { data: thisMonthDeals } = await supabase
+        .from('deals')
+        .select('commission_amount')
+        .gte('deal_date', thisMonthStart.toISOString());
+
+      const revenueThisMonth = thisMonthDeals?.reduce((sum, d) => sum + (d.commission_amount || 0), 0) || 0;
+
+      // Revenue last month
+      const { data: lastMonthDeals } = await supabase
+        .from('deals')
+        .select('commission_amount')
+        .gte('deal_date', lastMonthStart.toISOString())
+        .lte('deal_date', lastMonthEnd.toISOString());
+
+      const revenueLastMonth = lastMonthDeals?.reduce((sum, d) => sum + (d.commission_amount || 0), 0) || 0;
+
+      // Revenue this quarter
+      const { data: thisQuarterDeals } = await supabase
+        .from('deals')
+        .select('commission_amount')
+        .gte('deal_date', thisQuarterStart.toISOString());
+
+      const revenueThisQuarter = thisQuarterDeals?.reduce((sum, d) => sum + (d.commission_amount || 0), 0) || 0;
+
+      // Revenue last quarter
+      const { data: lastQuarterDeals } = await supabase
+        .from('deals')
+        .select('commission_amount')
+        .gte('deal_date', lastQuarterStart.toISOString())
+        .lte('deal_date', lastQuarterEnd.toISOString());
+
+      const revenueLastQuarter = lastQuarterDeals?.reduce((sum, d) => sum + (d.commission_amount || 0), 0) || 0;
+
+      // Pending pipeline (sent quotes)
+      const { data: sentQuotes } = await supabase
+        .from('quotes')
+        .select('total_amount')
+        .eq('status', 'sent');
+
+      const pendingPipeline = sentQuotes?.reduce((sum, q) => sum + (q.total_amount || 0), 0) || 0;
+
+      // Average deal size
+      const avgDealSize = allDeals && allDeals.length > 0
+        ? totalRevenue / allDeals.length
+        : 0;
+
+      // Win rate
+      const { data: allQuotes } = await supabase
+        .from('quotes')
+        .select('status');
+
+      const closedQuotes = allQuotes?.filter(q => q.status === 'accepted' || q.status === 'rejected').length || 0;
+      const acceptedQuotes = allQuotes?.filter(q => q.status === 'accepted').length || 0;
+      const winRate = closedQuotes > 0 ? (acceptedQuotes / closedQuotes) * 100 : 0;
+
+      setStats({
+        totalRevenue,
+        revenueThisMonth,
+        revenueLastMonth,
+        revenueThisQuarter,
+        revenueLastQuarter,
+        pendingPipeline,
+        avgDealSize,
+        winRate,
+      });
+    } catch (err) {
+      console.error('Error fetching revenue stats:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { stats, loading, refetch: fetchRevenueStats };
+};
+
+export const useRevenueByTalent = () => {
+  const [revenueByTalent, setRevenueByTalent] = useState<Array<{
+    talent_id: string;
+    talent_name: string;
+    deal_count: number;
+    total_revenue: number;
+    avg_deal_size: number;
+    last_deal_date: string | null;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRevenueByTalent();
+  }, []);
+
+  const fetchRevenueByTalent = async () => {
+    try {
+      setLoading(true);
+
+      const { data: deals } = await supabase
+        .from('deals')
+        .select('talent_id, commission_amount, deal_date, talents(name)')
+        .not('talent_id', 'is', null);
+
+      // Group by talent
+      const talentMap = new Map<string, {
+        talent_id: string;
+        talent_name: string;
+        deal_count: number;
+        total_revenue: number;
+        last_deal_date: string | null;
+      }>();
+
+      deals?.forEach((deal: any) => {
+        const talentId = deal.talent_id;
+        const talentName = deal.talents?.name || 'Unknown Talent';
+        const revenue = deal.commission_amount || 0;
+
+        if (!talentMap.has(talentId)) {
+          talentMap.set(talentId, {
+            talent_id: talentId,
+            talent_name: talentName,
+            deal_count: 0,
+            total_revenue: 0,
+            last_deal_date: null,
+          });
+        }
+
+        const current = talentMap.get(talentId)!;
+        current.deal_count += 1;
+        current.total_revenue += revenue;
+
+        if (!current.last_deal_date || deal.deal_date > current.last_deal_date) {
+          current.last_deal_date = deal.deal_date;
+        }
+      });
+
+      const result = Array.from(talentMap.values()).map(t => ({
+        ...t,
+        avg_deal_size: t.deal_count > 0 ? t.total_revenue / t.deal_count : 0,
+      })).sort((a, b) => b.total_revenue - a.total_revenue);
+
+      setRevenueByTalent(result);
+    } catch (err) {
+      console.error('Error fetching revenue by talent:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { revenueByTalent, loading, refetch: fetchRevenueByTalent };
+};
+
+export const useRevenueByClient = () => {
+  const [revenueByClient, setRevenueByClient] = useState<Array<{
+    client_id: string;
+    client_name: string;
+    deal_count: number;
+    total_revenue: number;
+    avg_deal_size: number;
+    last_deal_date: string | null;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRevenueByClient();
+  }, []);
+
+  const fetchRevenueByClient = async () => {
+    try {
+      setLoading(true);
+
+      const { data: deals } = await supabase
+        .from('deals')
+        .select('client_id, commission_amount, deal_date, clients(name)')
+        .not('client_id', 'is', null);
+
+      // Group by client
+      const clientMap = new Map<string, {
+        client_id: string;
+        client_name: string;
+        deal_count: number;
+        total_revenue: number;
+        last_deal_date: string | null;
+      }>();
+
+      deals?.forEach((deal: any) => {
+        const clientId = deal.client_id;
+        const clientName = deal.clients?.name || 'Unknown Client';
+        const revenue = deal.commission_amount || 0;
+
+        if (!clientMap.has(clientId)) {
+          clientMap.set(clientId, {
+            client_id: clientId,
+            client_name: clientName,
+            deal_count: 0,
+            total_revenue: 0,
+            last_deal_date: null,
+          });
+        }
+
+        const current = clientMap.get(clientId)!;
+        current.deal_count += 1;
+        current.total_revenue += revenue;
+
+        if (!current.last_deal_date || deal.deal_date > current.last_deal_date) {
+          current.last_deal_date = deal.deal_date;
+        }
+      });
+
+      const result = Array.from(clientMap.values()).map(c => ({
+        ...c,
+        avg_deal_size: c.deal_count > 0 ? c.total_revenue / c.deal_count : 0,
+      })).sort((a, b) => b.total_revenue - a.total_revenue);
+
+      setRevenueByClient(result);
+    } catch (err) {
+      console.error('Error fetching revenue by client:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { revenueByClient, loading, refetch: fetchRevenueByClient };
+};
+
+export const useRevenueOverTime = () => {
+  const [revenueData, setRevenueData] = useState<Array<{
+    month: string;
+    revenue: number;
+    deals: number;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRevenueOverTime();
+  }, []);
+
+  const fetchRevenueOverTime = async () => {
+    try {
+      setLoading(true);
+
+      // Get last 12 months of deals
+      const twelveMonthsAgo = new Date();
+      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+      const { data: deals } = await supabase
+        .from('deals')
+        .select('deal_date, commission_amount')
+        .gte('deal_date', twelveMonthsAgo.toISOString())
+        .order('deal_date', { ascending: true });
+
+      // Group by month
+      const monthMap = new Map<string, { revenue: number; deals: number }>();
+
+      // Initialize last 12 months
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - i);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        monthMap.set(monthKey, { revenue: 0, deals: 0 });
+      }
+
+      // Aggregate deals by month
+      deals?.forEach((deal) => {
+        const date = new Date(deal.deal_date);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+        if (monthMap.has(monthKey)) {
+          const current = monthMap.get(monthKey)!;
+          current.revenue += deal.commission_amount || 0;
+          current.deals += 1;
+        }
+      });
+
+      const result = Array.from(monthMap.entries()).map(([month, data]) => ({
+        month,
+        revenue: data.revenue,
+        deals: data.deals,
+      }));
+
+      setRevenueData(result);
+    } catch (err) {
+      console.error('Error fetching revenue over time:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { revenueData, loading, refetch: fetchRevenueOverTime };
+};
+
+export const useQuotePipeline = () => {
+  const [pipeline, setPipeline] = useState({
+    draft: { count: 0, value: 0 },
+    sent: { count: 0, value: 0 },
+    accepted: { count: 0, value: 0 },
+    rejected: { count: 0, value: 0 },
+    expired: { count: 0, value: 0 },
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchPipeline();
+  }, []);
+
+  const fetchPipeline = async () => {
+    try {
+      setLoading(true);
+
+      const { data: quotes } = await supabase
+        .from('quotes')
+        .select('status, total_amount');
+
+      const stats = {
+        draft: { count: 0, value: 0 },
+        sent: { count: 0, value: 0 },
+        accepted: { count: 0, value: 0 },
+        rejected: { count: 0, value: 0 },
+        expired: { count: 0, value: 0 },
+      };
+
+      quotes?.forEach((quote) => {
+        const status = quote.status as keyof typeof stats;
+        if (stats[status]) {
+          stats[status].count += 1;
+          stats[status].value += quote.total_amount || 0;
+        }
+      });
+
+      setPipeline(stats);
+    } catch (err) {
+      console.error('Error fetching quote pipeline:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { pipeline, loading, refetch: fetchPipeline };
+};
+
+export const useClients = () => {
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    fetchClients();
+  }, []);
+
+  const fetchClients = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setClients(data || []);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching clients:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { clients, loading, error, refetch: fetchClients };
+};
+
+// Deliverables hook - fetch all available deliverable types
+export const useDeliverables = () => {
+  const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    fetchDeliverables();
+  }, []);
+
+  const fetchDeliverables = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('deliverables')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+
+      if (error) throw error;
+      setDeliverables(data || []);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching deliverables:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { deliverables, loading, error, refetch: fetchDeliverables };
+};
+
+// Alias for backward compatibility
+export const useServices = () => {
+  const { deliverables, ...rest } = useDeliverables();
+  return { services: deliverables, ...rest };
+};
+
+// Talent rates hook - fetch rates for a specific talent
+export const useTalentRates = (talentId: string | null) => {
+  const [rates, setRates] = useState<TalentRate[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (talentId) {
+      fetchRates();
+    } else {
+      setRates([]);
+    }
+  }, [talentId]);
+
+  const fetchRates = async () => {
+    if (!talentId) return;
+
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('talent_rates')
+        .select('*, deliverable:deliverables(*)')
+        .eq('talent_id', talentId);
+
+      if (error) throw error;
+      setRates(data || []);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching talent rates:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { rates, loading, error, refetch: fetchRates };
+};
+
+// Fetch all talent rates with deliverables (for calculator)
+export const useAllTalentRates = () => {
+  const [ratesMap, setRatesMap] = useState<Map<string, Map<string, number>>>(new Map());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    fetchAllRates();
+  }, []);
+
+  const fetchAllRates = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('talent_rates')
+        .select('talent_id, deliverable_id, base_rate');
+
+      if (error) throw error;
+
+      // Build a map: talentId -> deliverableId -> base_rate
+      const map = new Map<string, Map<string, number>>();
+      data?.forEach((tr) => {
+        if (!map.has(tr.talent_id)) {
+          map.set(tr.talent_id, new Map());
+        }
+        map.get(tr.talent_id)!.set(tr.deliverable_id, tr.base_rate);
+      });
+
+      setRatesMap(map);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching all talent rates:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper function to get base rate for a talent/deliverable
+  const getRate = (talentId: string, deliverableId: string): number => {
+    return ratesMap.get(talentId)?.get(deliverableId) || 0;
+  };
+
+  return { ratesMap, getRate, loading, error, refetch: fetchAllRates };
+};
