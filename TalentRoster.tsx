@@ -230,7 +230,7 @@ const TalentRoster = () => {
               onClick={() => handleTalentClick(talent)}
               className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden cursor-pointer"
             >
-              <div className="relative h-56 bg-gray-100 overflow-hidden">
+              <div className="relative aspect-square bg-gray-100 overflow-hidden">
                 <img
                   src={talent.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(talent.name)}`}
                   alt={talent.name}
@@ -243,28 +243,23 @@ const TalentRoster = () => {
                   <p className="text-white text-sm font-medium">View detailed analytics</p>
                 </div>
               </div>
-              <div className="p-5">
-                <div className="mb-4">
-                  <h3 className="text-lg font-bold text-gray-900 group-hover:text-brand-600 transition-colors">{talent.name}</h3>
+              <div className="p-4">
+                <div className="mb-3">
+                  <h3 className="text-base font-bold text-gray-900 group-hover:text-brand-600 transition-colors">{talent.name}</h3>
                   <p className="text-sm text-gray-500">{talent.category}</p>
                 </div>
 
-                <div className="mb-4 py-3 border-y border-gray-100">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Followers</p>
-                    <p className="text-sm font-semibold text-gray-900 flex items-center">
-                      <Instagram className="w-3 h-3 mr-1 text-pink-600" />
-                      {talent.followers || 'N/A'}
-                    </p>
-                  </div>
+                <div className="mb-3 py-2 border-y border-gray-100">
+                  <p className="text-xs text-gray-500 mb-1">Followers</p>
+                  <p className="text-sm font-semibold text-gray-900 flex items-center">
+                    <Instagram className="w-3 h-3 mr-1 text-pink-600" />
+                    {talent.followers || 'N/A'}
+                  </p>
                 </div>
 
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500 font-medium">
-                    Post: <span className="text-gray-900 font-semibold">${talent.rate_post ? (talent.rate_post / 100).toFixed(0) : 'N/A'}</span>
-                  </span>
-                  <span className="text-brand-600 font-medium text-xs flex items-center group-hover:translate-x-1 transition-transform">
-                    View Profile <ChevronRight className="w-3 h-3 ml-1" />
+                <div className="flex justify-end items-center">
+                  <span className="text-brand-600 font-medium text-sm flex items-center group-hover:translate-x-1 transition-transform">
+                    View Profile <ChevronRight className="w-4 h-4 ml-1" />
                   </span>
                 </div>
               </div>
