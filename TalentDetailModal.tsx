@@ -4,6 +4,14 @@ import Modal from './Modal';
 import { Talent, Deliverable, supabase } from './supabaseClient';
 import { useDeliverables } from './hooks';
 import Button from './Button';
+import { formatFollowerCount } from './utils';
+
+// TikTok icon component (Lucide doesn't have one)
+const TikTokIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
+  </svg>
+);
 
 interface TalentDetailModalProps {
   talent: Talent | null;
@@ -275,10 +283,21 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
                   href={`https://instagram.com/${talent.instagram_handle.replace('@', '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium transition-colors"
+                  className="inline-flex items-center gap-1.5 text-sm text-pink-600 hover:text-pink-700 font-medium transition-colors"
                 >
                   <Instagram className="w-4 h-4" />
-                  {talent.instagram_handle}
+                  @{talent.instagram_handle.replace('@', '')}
+                </a>
+              )}
+              {talent.tiktok_handle && (
+                <a
+                  href={`https://tiktok.com/@${talent.tiktok_handle.replace('@', '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-gray-800 hover:text-black font-medium transition-colors"
+                >
+                  <TikTokIcon className="w-4 h-4" />
+                  @{talent.tiktok_handle.replace('@', '')}
                 </a>
               )}
             </div>
@@ -318,13 +337,24 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
         {activeTab === 'profile' && (
           <>
             {/* Stats Grid */}
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="flex items-center gap-2 text-gray-600 text-sm mb-1">
-                <Instagram className="w-4 h-4" />
-                Followers
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-pink-600 text-sm mb-1">
+                  <Instagram className="w-4 h-4" />
+                  Instagram
+                </div>
+                <div className="text-2xl font-bold text-gray-900">
+                  {formatFollowerCount(talent.follower_count)}
+                </div>
               </div>
-              <div className="text-2xl font-bold text-gray-900">
-                {talent.followers || 'N/A'}
+              <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-gray-700 text-sm mb-1">
+                  <TikTokIcon className="w-4 h-4" />
+                  TikTok
+                </div>
+                <div className="text-2xl font-bold text-gray-900">
+                  {formatFollowerCount(talent.tiktok_follower_count)}
+                </div>
               </div>
             </div>
 

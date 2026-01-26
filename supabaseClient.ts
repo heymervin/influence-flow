@@ -46,9 +46,9 @@ export interface Talent {
   avatar_url?: string;
   instagram_handle?: string;
   tiktok_handle?: string;
-  followers?: string;
-  follower_count?: number;
-  tiktok_followers?: number;
+  followers?: string; // Legacy text display (e.g., "10K")
+  follower_count?: number; // Instagram follower count (numeric)
+  tiktok_follower_count?: number; // TikTok follower count (numeric)
   engagement_rate?: number;
   bio?: string;
   notes?: string;

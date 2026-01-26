@@ -7,6 +7,14 @@ import { scrapeInstagramStats, scrapeMultipleInstagramStats } from './apifyServi
 import Badge from './Badge';
 import Button from './Button';
 import TalentForm from './TalentForm';
+import { formatFollowerCount } from './utils';
+
+// TikTok icon component (Lucide doesn't have one)
+const TikTokIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
+  </svg>
+);
 
 const TalentRoster = () => {
   const { talents, loading, error, refetch } = useTalents();
@@ -244,12 +252,20 @@ const TalentRoster = () => {
                   <p className="text-sm text-gray-500">{talent.category}</p>
                 </div>
 
-                <div className="mb-3 py-2 border-y border-gray-100">
+                <div className="mb-3 py-2 border-y border-gray-100 space-y-1">
                   <p className="text-xs text-gray-500 mb-1">Followers</p>
-                  <p className="text-sm font-semibold text-gray-900 flex items-center">
-                    <Instagram className="w-3 h-3 mr-1 text-pink-600" />
-                    {talent.followers || 'N/A'}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm font-semibold text-gray-900 flex items-center">
+                      <Instagram className="w-3 h-3 mr-1 text-pink-600" />
+                      {formatFollowerCount(talent.follower_count)}
+                    </p>
+                    {(talent.tiktok_handle || talent.tiktok_follower_count) && (
+                      <p className="text-sm font-semibold text-gray-900 flex items-center">
+                        <TikTokIcon className="w-3 h-3 mr-1" />
+                        {formatFollowerCount(talent.tiktok_follower_count)}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex justify-end items-center">

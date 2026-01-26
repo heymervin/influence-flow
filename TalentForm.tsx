@@ -40,6 +40,7 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
   const [formData, setFormData] = useState({
     name: '',
     instagram_handle: '',
+    tiktok_handle: '',
     category: '',
     status: 'active' as 'active' | 'on-hold' | 'inactive',
     avatar_url: '',
@@ -60,6 +61,7 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
       setFormData({
         name: talent.name || '',
         instagram_handle: talent.instagram_handle || '',
+        tiktok_handle: talent.tiktok_handle || '',
         category: talent.category || '',
         status: talent.status || 'active',
         avatar_url: talent.avatar_url || '',
@@ -72,6 +74,7 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
       setFormData({
         name: '',
         instagram_handle: '',
+        tiktok_handle: '',
         category: '',
         status: 'active',
         avatar_url: '',
@@ -192,6 +195,7 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
         user_id: user.id,
         name: formData.name.trim(),
         instagram_handle: formData.instagram_handle.trim().replace('@', ''),
+        tiktok_handle: formData.tiktok_handle.trim().replace('@', '') || null,
         category: formData.category,
         status: formData.status,
         avatar_url: formData.avatar_url.trim() || null,
@@ -245,17 +249,19 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Name and Instagram Handle */}
+        {/* Name */}
+        <Input
+          label="Full Name"
+          name="name"
+          value={formData.name}
+          onChange={handleChange}
+          error={errors.name}
+          required
+          placeholder="e.g. Sarah Johnson"
+        />
+
+        {/* Social Handles */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input
-            label="Full Name"
-            name="name"
-            value={formData.name}
-            onChange={handleChange}
-            error={errors.name}
-            required
-            placeholder="e.g. Sarah Johnson"
-          />
           <Input
             label="Instagram Handle"
             name="instagram_handle"
@@ -265,6 +271,14 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
             required
             placeholder="e.g. sarahjohnson (without @)"
             helperText="Don't include the @ symbol"
+          />
+          <Input
+            label="TikTok Handle"
+            name="tiktok_handle"
+            value={formData.tiktok_handle}
+            onChange={handleChange}
+            placeholder="e.g. sarahjohnson (without @)"
+            helperText="Optional - Don't include the @ symbol"
           />
         </div>
 
