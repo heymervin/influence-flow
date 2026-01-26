@@ -354,7 +354,7 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
                       }`}
                     >
                       {getPlatformIcon(platform?.icon_name, 'w-4 h-4')}
-                      @{account.handle}
+                      {account.handle}
                     </a>
                   );
                 })
@@ -415,7 +415,7 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
                         {formatFollowerCount(account.follower_count)}
                       </div>
                       <div className="text-xs text-gray-500 mt-1">
-                        @{account.handle}
+                        {account.handle}
                       </div>
                     </div>
                   );
