@@ -1,11 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowLeft, Plus, Trash2, Search, X, ChevronDown, Instagram, HelpCircle, Save, FileText, Check, AlertCircle, MoreVertical, Copy, User } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ArrowLeft, Trash2, Search, X, HelpCircle, Save, FileText, Check, AlertCircle } from 'lucide-react';
 import { useAuth } from './AuthContext';
-import { supabase, Client, Talent, Deliverable } from './supabaseClient';
-import { useTalents, useDeliverables, useAllTalentRates, useAllTalentSocialAccounts, useCategories, useAllTalentCategories, useClients, useTermsTemplates } from './hooks';
-import { formatFollowerCount } from './utils';
-import Input from './Input';
-import Select from './Select';
+import { supabase } from './supabaseClient';
+import { useTalents, useDeliverables, useClients, useTermsTemplates } from './hooks';
 import Textarea from './Textarea';
 import Button from './Button';
 import RateCardView from './RateCardView';
@@ -46,15 +43,6 @@ Content Rights:
 Cancellation:
 - Cancellations must be made 48 hours in advance
 - Deposit is non-refundable after content creation begins`;
-
-const CATEGORY_LABELS: Record<string, string> = {
-  'content': 'Content',
-  'paid_ad_rights': 'Paid Ad Rights',
-  'talent_boosting': 'Talent Boosting',
-  'ugc': 'UGC',
-  'exclusivity': 'Extra Exclusivity',
-  'agency_fee': 'Agency Service Fee',
-};
 
 // Tooltip component
 const Tooltip = ({ content, children }: { content: string; children: React.ReactNode }) => (
@@ -111,7 +99,7 @@ const DeleteConfirmModal = ({
         </p>
         <div className="flex gap-3 justify-end">
           <Button variant="secondary" size="sm" onClick={onCancel}>Cancel</Button>
-          <Button variant="danger" size="sm" onClick={onConfirm}>Remove</Button>
+          <Button variant="destructive" size="sm" onClick={onConfirm}>Remove</Button>
         </div>
       </div>
     </div>
@@ -122,12 +110,8 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
   const { user, profile } = useAuth();
   const { talents } = useTalents();
   const { deliverables, loading: deliverablesLoading } = useDeliverables();
-  const { getRate, loading: ratesLoading } = useAllTalentRates();
-  const { getAccountsForTalent } = useAllTalentSocialAccounts();
-  const { activeCategories, getCategoryById } = useCategories();
-  const { getCategoriesForTalent } = useAllTalentCategories();
-  const { clients, loading: clientsLoading, refetch: refetchClients } = useClients();
-  const { templates: termsTemplates, getDefaultTemplate } = useTermsTemplates();
+  const { clients, loading: clientsLoading } = useClients();
+  const { templates: termsTemplates } = useTermsTemplates();
 
   // Client & Campaign
   const [selectedClientId, setSelectedClientId] = useState('');
@@ -145,15 +129,8 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
   // Line Items
   const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
 
-  // Add Line Item Form State
-  const [showAddForm, setShowAddForm] = useState(false);
+  // Talent Search for Rate Card
   const [talentSearch, setTalentSearch] = useState('');
-  const [selectedTalentId, setSelectedTalentId] = useState('');
-  const [selectedDeliverableId, setSelectedDeliverableId] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [talentFilter, setTalentFilter] = useState('');
-  const [talentDropdownOpen, setTalentDropdownOpen] = useState(false);
-  const talentDropdownRef = useRef<HTMLDivElement>(null);
 
   // Commission & ASF Settings
   const [commissionRate, setCommissionRate] = useState('15');
@@ -173,32 +150,8 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
-  // Bulk Add Mode
-  const [showBulkAddForm, setShowBulkAddForm] = useState(false);
-  const [selectedBulkTalentIds, setSelectedBulkTalentIds] = useState<string[]>([]);
-  const [bulkDeliverableId, setBulkDeliverableId] = useState('');
-  const [bulkQuantity, setBulkQuantity] = useState(1);
-
   // Rate Card Mode
-  const [showRateCard, setShowRateCard] = useState(false);
   const [rateCardTalentId, setRateCardTalentId] = useState('');
-
-  // Autosave
-  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [draftId, setDraftId] = useState<string | null>(null);
-
-  // Close talent dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (talentDropdownRef.current && !talentDropdownRef.current.contains(event.target as Node)) {
-        setTalentDropdownOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -219,101 +172,9 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [lineItems, selectedClientId, isNewClient, clientFormData, campaignName]); // Dependencies for handleSubmit
 
-  // Filter talents based on search and category filter
-  const filteredTalents = useMemo(() => {
-    return talents.filter(talent => {
-      const accounts = getAccountsForTalent(talent.id);
-      const handlesMatch = accounts.some(a =>
-        a.handle.toLowerCase().includes(talentSearch.toLowerCase())
-      );
-      const matchesSearch = !talentSearch ||
-        talent.name.toLowerCase().includes(talentSearch.toLowerCase()) ||
-        handlesMatch;
-      // Use category filter with new junction table
-      const talentCategoryIds = getCategoriesForTalent(talent.id);
-      const matchesFilter = !talentFilter || talentCategoryIds.includes(talentFilter);
-      return matchesSearch && matchesFilter;
-    });
-  }, [talents, talentSearch, talentFilter, getAccountsForTalent, getCategoriesForTalent]);
-
-  // Group deliverables by category
-  const deliverablesByCategory = useMemo(() => {
-    const grouped: Record<string, Deliverable[]> = {};
-    deliverables.forEach(d => {
-      const category = d.category || 'content';
-      if (!grouped[category]) grouped[category] = [];
-      grouped[category].push(d);
-    });
-    return grouped;
-  }, [deliverables]);
-
-  const selectedTalent = talents.find(t => t.id === selectedTalentId);
-  const selectedDeliverable = deliverables.find(d => d.id === selectedDeliverableId);
-
-  // Get rate for selected talent + deliverable
-  const currentRate = useMemo(() => {
-    if (!selectedTalentId || !selectedDeliverableId) return 0;
-
-    // Special handling for agency fee
-    if (selectedDeliverable?.category === 'agency_fee') {
-      return 50000; // $500 base (will be calculated differently)
-    }
-
-    return getRate(selectedTalentId, selectedDeliverableId);
-  }, [selectedTalentId, selectedDeliverableId, getRate, selectedDeliverable]);
-
-  // Check if add button should be enabled
-  const canAddItem = selectedTalentId && selectedDeliverableId && quantity >= 1;
-
-  // Add line item
-  const handleAddLineItem = () => {
-    if (!canAddItem) return;
-
-    const talent = talents.find(t => t.id === selectedTalentId);
-    const deliverable = deliverables.find(d => d.id === selectedDeliverableId);
-    if (!talent || !deliverable) return;
-
-    // Calculate unit price
-    let unitPrice = currentRate;
-    if (deliverable.category === 'agency_fee') {
-      // Agency fee: $500 first month + $100 per additional month
-      unitPrice = 50000 + (10000 * Math.max(0, quantity - 1));
-    }
-
-    const newItem: QuoteLineItem = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      talent_id: selectedTalentId,
-      talent_name: talent.name,
-      deliverable_id: selectedDeliverableId,
-      deliverable_name: deliverable.name,
-      deliverable_category: deliverable.category || 'content',
-      quantity: deliverable.category === 'agency_fee' ? quantity : quantity,
-      unit_price: deliverable.category === 'agency_fee' ? unitPrice : currentRate,
-    };
-
-    setLineItems(prev => [...prev, newItem]);
-
-    // Show success toast
-    setToast({ message: `Added ${deliverable.name} for ${talent.name}`, type: 'success' });
-
-    // Reset form
-    setSelectedDeliverableId('');
-    setQuantity(1);
-  };
-
   // Remove line item with confirmation
   const handleRemoveClick = (item: QuoteLineItem) => {
     setDeleteConfirm({ id: item.id, name: `${item.talent_name} - ${item.deliverable_name}` });
-  };
-
-  // Duplicate line item
-  const handleDuplicateItem = (item: QuoteLineItem) => {
-    const newItem: QuoteLineItem = {
-      ...item,
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    };
-    setLineItems(prev => [...prev, newItem]);
-    setToast({ message: `Duplicated ${item.deliverable_name} for ${item.talent_name}`, type: 'success' });
   };
 
   const confirmRemoveItem = () => {
@@ -322,58 +183,6 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
       setToast({ message: 'Item removed from quote', type: 'success' });
       setDeleteConfirm(null);
     }
-  };
-
-  // Toggle talent selection for bulk add
-  const toggleBulkTalentSelection = (talentId: string) => {
-    setSelectedBulkTalentIds(prev =>
-      prev.includes(talentId)
-        ? prev.filter(id => id !== talentId)
-        : [...prev, talentId]
-    );
-  };
-
-  // Handle bulk add
-  const handleBulkAdd = () => {
-    if (selectedBulkTalentIds.length === 0 || !bulkDeliverableId) return;
-
-    const deliverable = deliverables.find(d => d.id === bulkDeliverableId);
-    if (!deliverable) return;
-
-    const newItems: QuoteLineItem[] = selectedBulkTalentIds.map(talentId => {
-      const talent = talents.find(t => t.id === talentId);
-      const rate = deliverable.category === 'agency_fee' ? 50000 : getRate(talentId, bulkDeliverableId);
-
-      return {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${talentId}`,
-        talent_id: talentId,
-        talent_name: talent?.name || '',
-        deliverable_id: bulkDeliverableId,
-        deliverable_name: deliverable.name,
-        deliverable_category: deliverable.category || 'content',
-        quantity: bulkQuantity,
-        unit_price: deliverable.category === 'agency_fee'
-          ? 50000 + (10000 * Math.max(0, bulkQuantity - 1))
-          : rate,
-      };
-    }).filter(item => item.unit_price > 0); // Only add items with valid rates
-
-    if (newItems.length === 0) {
-      setToast({ message: 'No talents have rates for this deliverable', type: 'error' });
-      return;
-    }
-
-    setLineItems(prev => [...prev, ...newItems]);
-    setToast({
-      message: `Added ${deliverable.name} for ${newItems.length} talent${newItems.length !== 1 ? 's' : ''}`,
-      type: 'success'
-    });
-
-    // Reset bulk form
-    setSelectedBulkTalentIds([]);
-    setBulkDeliverableId('');
-    setBulkQuantity(1);
-    setShowBulkAddForm(false);
   };
 
   // Handle items from Rate Card
@@ -392,29 +201,6 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
 
   // Get talent for rate card
   const rateCardTalent = talents.find(t => t.id === rateCardTalentId);
-
-  // Update line item quantity
-  const updateLineItemQuantity = (id: string, newQty: number) => {
-    if (newQty < 1) return;
-    setLineItems(prev => prev.map(item => {
-      if (item.id !== id) return item;
-
-      // Recalculate unit price for agency fee
-      if (item.deliverable_category === 'agency_fee') {
-        const unitPrice = 50000 + (10000 * Math.max(0, newQty - 1));
-        return { ...item, quantity: newQty, unit_price: unitPrice };
-      }
-
-      return { ...item, quantity: newQty };
-    }));
-  };
-
-  // Clear selected talent
-  const clearSelectedTalent = () => {
-    setSelectedTalentId('');
-    setSelectedDeliverableId('');
-    setTalentSearch('');
-  };
 
   // Calculate totals
   const totals = useMemo(() => {
@@ -606,7 +392,7 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
   };
 
   // Loading state
-  if (deliverablesLoading || ratesLoading || clientsLoading) {
+  if (deliverablesLoading || clientsLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
@@ -744,51 +530,38 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
 
         {/* Line Items Section */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Line Items</h2>
-              <p className="text-sm text-gray-500 mt-0.5">Add talents and deliverables to your quote</p>
-            </div>
-            {!showAddForm && !showBulkAddForm && !showRateCard && (
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setShowRateCard(true)}>
-                  Rate Card
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => setShowBulkAddForm(true)}>
-                  Bulk Add
-                </Button>
-                <Button icon={Plus} size="sm" onClick={() => setShowAddForm(true)}>
-                  Add Item
-                </Button>
-              </div>
-            )}
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">Line Items</h2>
+            <p className="text-sm text-gray-500 mt-0.5">Select a talent to see their rate card</p>
           </div>
 
-          {/* Rate Card Mode */}
-          {showRateCard && (
-            <div className="m-6">
-              {!rateCardTalentId ? (
-                <div className="bg-gradient-to-br from-brand-50 to-purple-50 rounded-xl border-2 border-dashed border-brand-300 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-brand-600" />
-                      Rate Card - Select Talent
-                    </h3>
-                    <button
-                      onClick={() => setShowRateCard(false)}
-                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white rounded-lg transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Select a talent to view their rate card and quickly add deliverables.
-                  </p>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-                    {talents.map(talent => (
+          <div className="p-6">
+            {/* Talent Search/Selection - Show when no talent selected */}
+            {!rateCardTalentId ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Select Talent</label>
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search talents..."
+                    value={talentSearch}
+                    onChange={(e) => setTalentSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+
+                {/* Talent Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-64 overflow-y-auto">
+                  {talents
+                    .filter(t => t.name.toLowerCase().includes(talentSearch.toLowerCase()))
+                    .map(talent => (
                       <button
                         key={talent.id}
-                        onClick={() => setRateCardTalentId(talent.id)}
+                        onClick={() => {
+                          setRateCardTalentId(talent.id);
+                          setTalentSearch('');
+                        }}
                         className="flex items-center gap-2 px-3 py-2 rounded-lg text-left bg-white border border-gray-200 hover:border-brand-300 hover:bg-brand-50 transition-colors"
                       >
                         <img
@@ -799,417 +572,86 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
                         <span className="text-sm font-medium text-gray-700 truncate">{talent.name}</span>
                       </button>
                     ))}
-                  </div>
-                </div>
-              ) : (
-                <RateCardView
-                  talentId={rateCardTalentId}
-                  talentName={rateCardTalent?.name || ''}
-                  talentAvatar={rateCardTalent?.avatar_url}
-                  onAddToQuote={handleRateCardAdd}
-                  onClear={() => setRateCardTalentId('')}
-                />
-              )}
-            </div>
-          )}
-
-          {/* Add Item Form - Elevated Card */}
-          {showAddForm && (
-            <div className="m-6">
-              <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border-2 border-dashed border-gray-300 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                    <Plus className="w-4 h-4 text-brand-600" />
-                    Add Line Item
-                  </h3>
-                  <button
-                    onClick={() => {
-                      setShowAddForm(false);
-                      clearSelectedTalent();
-                      setQuantity(1);
-                      setTalentFilter('');
-                    }}
-                    className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white rounded-lg transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                  {/* Talent Search & Select */}
-                  <div className="md:col-span-5">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Talent</label>
-                    <div ref={talentDropdownRef} className="relative">
-                      {/* Selected Talent Chip or Search */}
-                      {selectedTalent ? (
-                        <div className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg">
-                          <img
-                            src={selectedTalent.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedTalent.name)}`}
-                            alt={selectedTalent.name}
-                            className="w-6 h-6 rounded-full object-cover"
-                          />
-                          <span className="text-sm font-medium text-gray-900 flex-1">{selectedTalent.name}</span>
-                          <button
-                            onClick={clearSelectedTalent}
-                            className="p-0.5 text-gray-400 hover:text-gray-600"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          {/* Search and Filter Row */}
-                          <div className="flex gap-2">
-                            <div className="relative flex-1">
-                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                              <input
-                                type="text"
-                                value={talentSearch}
-                                onChange={(e) => {
-                                  setTalentSearch(e.target.value);
-                                  setTalentDropdownOpen(true);
-                                }}
-                                onFocus={() => setTalentDropdownOpen(true)}
-                                placeholder="Search talents..."
-                                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white"
-                              />
-                            </div>
-                            <select
-                              value={talentFilter}
-                              onChange={(e) => setTalentFilter(e.target.value)}
-                              className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500 w-32"
-                            >
-                              <option value="">All</option>
-                              {activeCategories.map(cat => (
-                                <option key={cat.id} value={cat.id}>{cat.name}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* Dropdown Options */}
-                          {talentDropdownOpen && (
-                            <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                              {filteredTalents.length === 0 ? (
-                                <div className="px-4 py-3 text-sm text-gray-500">No talents found</div>
-                              ) : (
-                                filteredTalents.map(talent => (
-                                  <button
-                                    key={talent.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedTalentId(talent.id);
-                                      setSelectedDeliverableId('');
-                                      setTalentDropdownOpen(false);
-                                      setTalentSearch('');
-                                    }}
-                                    className="w-full px-3 py-2 flex items-center gap-3 hover:bg-brand-50 transition-colors"
-                                  >
-                                    <img
-                                      src={talent.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(talent.name)}`}
-                                      alt={talent.name}
-                                      className="w-10 h-10 rounded-full object-cover object-top flex-shrink-0"
-                                    />
-                                    <div className="flex-1 text-left min-w-0">
-                                      <p className="text-sm font-medium text-gray-900 truncate">{talent.name}</p>
-                                      <p className="text-xs text-gray-500 flex items-center gap-2">
-                                        <span>{talent.category}</span>
-                                        {(() => {
-                                          const accounts = getAccountsForTalent(talent.id);
-                                          const igAccount = accounts.find(a => a.platform === 'instagram');
-                                          return igAccount?.follower_count ? (
-                                            <>
-                                              <span>•</span>
-                                              <span className="flex items-center">
-                                                <Instagram className="w-3 h-3 mr-1" />
-                                                {formatFollowerCount(igAccount.follower_count)}
-                                              </span>
-                                            </>
-                                          ) : null;
-                                        })()}
-                                      </p>
-                                    </div>
-                                  </button>
-                                ))
-                              )}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Deliverable Select (grouped) */}
-                  <div className="md:col-span-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Deliverable</label>
-                    <select
-                      value={selectedDeliverableId}
-                      onChange={(e) => setSelectedDeliverableId(e.target.value)}
-                      disabled={!selectedTalentId}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                    >
-                      <option value="">Select deliverable...</option>
-                      {Object.entries(deliverablesByCategory).map(([category, items]) => (
-                        <optgroup key={category} label={CATEGORY_LABELS[category] || category}>
-                          {items.map(d => {
-                            const rate = d.category === 'agency_fee' ? 50000 : getRate(selectedTalentId, d.id);
-                            const hasRate = d.category === 'agency_fee' || rate > 0;
-                            return (
-                              <option key={d.id} value={d.id} disabled={!hasRate}>
-                                {d.name} {hasRate ? `- ${formatCurrency(rate)}` : '(no rate)'}
-                              </option>
-                            );
-                          })}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Quantity */}
-                  <div className="md:col-span-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      {selectedDeliverable?.category === 'agency_fee' ? 'Mo' : 'Qty'}
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={quantity}
-                      onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white text-center"
-                    />
-                  </div>
-
-                  {/* Add Button */}
-                  <div className="md:col-span-2 flex items-end">
-                    <Button
-                      onClick={handleAddLineItem}
-                      disabled={!canAddItem}
-                      className="w-full"
-                      icon={Plus}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Rate Preview */}
-                {selectedTalentId && selectedDeliverableId && (
-                  <div className="mt-4 p-3 bg-white rounded-lg border border-gray-200">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">
-                        {selectedTalent?.name} - {selectedDeliverable?.name}
-                      </span>
-                      <span className="font-bold text-brand-600">
-                        {selectedDeliverable?.category === 'agency_fee'
-                          ? `${formatCurrency(50000 + (10000 * Math.max(0, quantity - 1)))} (${quantity} mo)`
-                          : `${formatCurrency(currentRate)} × ${quantity} = ${formatCurrency(currentRate * quantity)}`
-                        }
-                      </span>
-                    </div>
-                    {selectedDeliverable?.category === 'agency_fee' && (
-                      <p className="text-xs text-gray-500 mt-1">$500 first month + $100/month after</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Bulk Add Form */}
-          {showBulkAddForm && (
-            <div className="m-6">
-              <div className="bg-gradient-to-br from-brand-50 to-purple-50 rounded-xl border-2 border-dashed border-brand-300 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                    <User className="w-4 h-4 text-brand-600" />
-                    Bulk Add - Select Multiple Talents
-                  </h3>
-                  <button
-                    onClick={() => {
-                      setShowBulkAddForm(false);
-                      setSelectedBulkTalentIds([]);
-                      setBulkDeliverableId('');
-                      setBulkQuantity(1);
-                    }}
-                    className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white rounded-lg transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  {/* Talent Selection Grid */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Select Talents ({selectedBulkTalentIds.length} selected)
-                    </label>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-2 bg-white rounded-lg border border-gray-200">
-                      {talents.map(talent => {
-                        const isSelected = selectedBulkTalentIds.includes(talent.id);
-                        return (
-                          <button
-                            key={talent.id}
-                            type="button"
-                            onClick={() => toggleBulkTalentSelection(talent.id)}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors ${
-                              isSelected
-                                ? 'bg-brand-100 border-2 border-brand-500 text-brand-700'
-                                : 'bg-gray-50 border border-gray-200 text-gray-700 hover:bg-gray-100'
-                            }`}
-                          >
-                            <img
-                              src={talent.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(talent.name)}`}
-                              alt={talent.name}
-                              className="w-6 h-6 rounded-full object-cover"
-                            />
-                            <span className="text-xs font-medium truncate">{talent.name}</span>
-                            {isSelected && <Check className="w-3 h-3 ml-auto flex-shrink-0" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Deliverable and Quantity */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Deliverable</label>
-                      <select
-                        value={bulkDeliverableId}
-                        onChange={(e) => setBulkDeliverableId(e.target.value)}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500"
-                      >
-                        <option value="">Select deliverable...</option>
-                        {Object.entries(deliverablesByCategory).map(([category, items]) => (
-                          <optgroup key={category} label={CATEGORY_LABELS[category] || category}>
-                            {items.map(d => (
-                              <option key={d.id} value={d.id}>{d.name}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Quantity</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={bulkQuantity}
-                        onChange={(e) => setBulkQuantity(parseInt(e.target.value) || 1)}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white text-center"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Add Button */}
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={handleBulkAdd}
-                      disabled={selectedBulkTalentIds.length === 0 || !bulkDeliverableId}
-                      icon={Plus}
-                    >
-                      Add to {selectedBulkTalentIds.length} Talent{selectedBulkTalentIds.length !== 1 ? 's' : ''}
-                    </Button>
-                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            ) : (
+              /* Rate Card View - Show when talent is selected */
+              <RateCardView
+                talentId={rateCardTalentId}
+                talentName={rateCardTalent?.name || ''}
+                talentAvatar={rateCardTalent?.avatar_url}
+                onAddToQuote={handleRateCardAdd}
+                onClear={() => setRateCardTalentId('')}
+                onAddAnotherTalent={() => setRateCardTalentId('')}
+                allDeliverables={deliverables}
+              />
+            )}
 
-          {/* Line Items - Grouped by Talent */}
-          {lineItems.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 mb-2">No items added yet</p>
-              <p className="text-sm text-gray-400">Click "Add Item" to start building your quote</p>
-              {errors.items && <p className="text-sm text-red-600 mt-2">{errors.items}</p>}
-            </div>
-          ) : (
-            <div className="p-6 space-y-4">
-              {groupedLineItems.map(group => {
-                const talent = talents.find(t => t.id === group.talentId);
-                return (
-                  <div key={group.talentId} className="border border-gray-200 rounded-xl overflow-hidden">
-                    {/* Talent Header */}
-                    <div className="bg-gray-50 px-4 py-3 flex items-center gap-3 border-b border-gray-200">
-                      <img
-                        src={talent?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(group.talentName)}`}
-                        alt={group.talentName}
-                        className="w-8 h-8 rounded-full object-cover object-top"
-                      />
-                      <div className="flex-1">
-                        <h4 className="text-sm font-semibold text-gray-900">{group.talentName}</h4>
-                        <p className="text-xs text-gray-500">{group.items.length} deliverable{group.items.length !== 1 ? 's' : ''}</p>
+            {/* Added Items Summary - Show below rate card */}
+            {lineItems.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                  Added to Quote ({lineItems.length} item{lineItems.length !== 1 ? 's' : ''})
+                </h3>
+
+                {/* Group by talent */}
+                {groupedLineItems.map(group => {
+                  const talent = talents.find(t => t.id === group.talentId);
+                  return (
+                    <div key={group.talentId} className="mb-4 border border-gray-200 rounded-lg overflow-hidden">
+                      {/* Talent Header */}
+                      <div className="bg-gray-50 px-4 py-2 flex items-center gap-2 border-b border-gray-200">
+                        <img
+                          src={talent?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(group.talentName)}`}
+                          alt={group.talentName}
+                          className="w-6 h-6 rounded-full object-cover object-top"
+                        />
+                        <span className="text-sm font-medium text-gray-900">{group.talentName}</span>
+                        <span className="text-xs text-gray-500">({group.items.length} items)</span>
+                        <span className="ml-auto text-sm font-semibold text-gray-900">
+                          {formatCurrency(group.subtotal)}
+                        </span>
                       </div>
-                      <div className="text-right">
-                        <p className="text-xs text-gray-500">Subtotal</p>
-                        <p className="text-sm font-bold text-brand-600">{formatCurrency(group.subtotal)}</p>
-                      </div>
-                    </div>
 
-                    {/* Deliverable Items */}
-                    <div className="divide-y divide-gray-100">
-                      {group.items.map(item => {
-                        const isAgencyFee = item.deliverable_category === 'agency_fee';
-                        const itemSubtotal = isAgencyFee ? item.unit_price : item.unit_price * item.quantity;
+                      {/* Items */}
+                      <div className="divide-y divide-gray-100">
+                        {group.items.map(item => {
+                          const isAgencyFee = item.deliverable_category === 'agency_fee';
+                          const itemSubtotal = isAgencyFee ? item.unit_price : item.unit_price * item.quantity;
 
-                        return (
-                          <div key={item.id} className="px-4 py-3 flex items-center gap-4 hover:bg-gray-50 transition-colors group">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900">{item.deliverable_name}</p>
-                              {isAgencyFee && (
-                                <p className="text-xs text-gray-400">$500 first month + $100/mo after</p>
-                              )}
-                            </div>
-                            <div className="text-right text-sm text-gray-600 w-24">
-                              {isAgencyFee ? '$500+' : formatCurrency(item.unit_price)}
-                            </div>
-                            <div className="flex items-center gap-1 w-24 justify-center">
-                              <span className="text-gray-400">×</span>
-                              <input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => updateLineItemQuantity(item.id, parseInt(e.target.value) || 1)}
-                                className="w-14 px-2 py-1 text-sm text-center border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 bg-white"
-                              />
-                              {isAgencyFee && <span className="text-xs text-gray-400">mo</span>}
-                            </div>
-                            <div className="text-right text-sm font-semibold text-gray-900 w-24">
-                              {formatCurrency(itemSubtotal)}
-                            </div>
-                            <div className="relative w-8">
-                              <div className="group/menu">
-                                <button className="p-1.5 text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-                                  <MoreVertical className="w-4 h-4" />
+                          return (
+                            <div key={item.id} className="px-4 py-2 flex items-center justify-between text-sm">
+                              <span className="text-gray-700">{item.deliverable_name}</span>
+                              <div className="flex items-center gap-4">
+                                <span className="text-gray-500">{item.quantity} × {formatCurrency(item.unit_price)}</span>
+                                <span className="font-medium">{formatCurrency(itemSubtotal)}</span>
+                                <button
+                                  onClick={() => handleRemoveClick(item)}
+                                  className="text-gray-400 hover:text-red-500"
+                                >
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
-                                <div className="absolute right-0 top-full mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 invisible group-hover/menu:visible group-focus-within/menu:visible">
-                                  <button
-                                    onClick={() => handleDuplicateItem(item)}
-                                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                                  >
-                                    <Copy className="w-4 h-4" />
-                                    Duplicate
-                                  </button>
-                                  <button
-                                    onClick={() => handleRemoveClick(item)}
-                                    className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                    Remove
-                                  </button>
-                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
 
+            {/* Empty State */}
+            {lineItems.length === 0 && !rateCardTalentId && (
+              <div className="text-center py-8 text-gray-500 mt-6 border-t border-gray-200">
+                <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p>No items added yet</p>
+                <p className="text-sm text-gray-400 mt-1">Select a talent above to start building your quote</p>
+                {errors.items && <p className="text-sm text-red-600 mt-2">{errors.items}</p>}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Pricing & Fees Section */}
