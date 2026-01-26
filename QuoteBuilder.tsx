@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Trash2, X, HelpCircle, Save, FileText, Check, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Trash2, X, HelpCircle, Save, FileText, Check, AlertCircle, Eye, Percent, DollarSign } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { supabase } from './supabaseClient';
 import { useTalents, useDeliverables, useClients, useTermsTemplates } from './hooks';
@@ -135,6 +135,14 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
   const [asfRate, setAsfRate] = useState('5');
   const [enableAsf, setEnableAsf] = useState(true);
 
+  // Discount Settings
+  const [enableDiscount, setEnableDiscount] = useState(false);
+  const [discountType, setDiscountType] = useState<'percentage' | 'flat'>('percentage');
+  const [discountValue, setDiscountValue] = useState('');
+
+  // Preview Modal
+  const [showPreview, setShowPreview] = useState(false);
+
   // Terms
   const [termsAndConditions, setTermsAndConditions] = useState(profile?.quote_terms || DEFAULT_TERMS);
 
@@ -222,13 +230,28 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
       }
     });
 
+    const subtotalBeforeDiscount = talentFees + commissions + asfTotal;
+
+    // Calculate discount
+    let discountAmount = 0;
+    if (enableDiscount && discountValue) {
+      const discountVal = parseFloat(discountValue);
+      if (discountType === 'percentage') {
+        discountAmount = Math.round(subtotalBeforeDiscount * (discountVal / 100));
+      } else {
+        discountAmount = Math.round(discountVal * 100); // Convert dollars to cents
+      }
+    }
+
     return {
       talentFees,
       commissions,
       asfTotal,
-      total: talentFees + commissions + asfTotal,
+      subtotalBeforeDiscount,
+      discountAmount,
+      total: subtotalBeforeDiscount - discountAmount,
     };
-  }, [lineItems, commissionRate, asfRate, enableAsf]);
+  }, [lineItems, commissionRate, asfRate, enableAsf, enableDiscount, discountType, discountValue]);
 
   // Group line items by talent
   const groupedLineItems = useMemo(() => {
@@ -671,6 +694,72 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
                   />
                 </div>
               </div>
+
+              {/* Discount Settings */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className="flex items-center gap-1 mb-3">
+                  <label className="block text-sm font-medium text-gray-700">Discount</label>
+                  <Tooltip content="Apply a discount to the quote total">
+                    <HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" />
+                  </Tooltip>
+                  <label className="flex items-center gap-1 ml-auto">
+                    <input
+                      type="checkbox"
+                      checked={enableDiscount}
+                      onChange={(e) => setEnableDiscount(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span className="text-xs text-gray-500">Enable</span>
+                  </label>
+                </div>
+
+                {enableDiscount && (
+                  <div className="flex gap-2">
+                    {/* Discount Type Toggle */}
+                    <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType('percentage')}
+                        className={`px-3 py-2 text-sm flex items-center gap-1 transition-colors ${
+                          discountType === 'percentage'
+                            ? 'bg-brand-100 text-brand-700 font-medium'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Percent className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType('flat')}
+                        className={`px-3 py-2 text-sm flex items-center gap-1 border-l border-gray-300 transition-colors ${
+                          discountType === 'flat'
+                            ? 'bg-brand-100 text-brand-700 font-medium'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        <DollarSign className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Discount Value Input */}
+                    <div className="flex-1 relative">
+                      <input
+                        type="number"
+                        min="0"
+                        step={discountType === 'flat' ? '0.01' : '1'}
+                        max={discountType === 'percentage' ? '100' : undefined}
+                        value={discountValue}
+                        onChange={(e) => setDiscountValue(e.target.value)}
+                        placeholder={discountType === 'percentage' ? '10' : '500'}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                        {discountType === 'percentage' ? '%' : 'USD'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Summary Breakdown */}
@@ -702,6 +791,17 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
                         </Tooltip>
                       </span>
                       <span className="text-gray-900 font-medium">{formatCurrency(totals.asfTotal)}</span>
+                    </div>
+                  )}
+                  {enableDiscount && totals.discountAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 flex items-center gap-1">
+                        Discount ({discountType === 'percentage' ? `${discountValue}%` : 'Flat'})
+                        <Tooltip content="Discount applied to quote total">
+                          <HelpCircle className="w-3 h-3 text-gray-400" />
+                        </Tooltip>
+                      </span>
+                      <span className="text-green-600 font-medium">-{formatCurrency(totals.discountAmount)}</span>
                     </div>
                   )}
                   <div className="border-t-2 border-gray-300 pt-3 mt-3">
@@ -773,22 +873,31 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
         <div className="max-w-5xl mx-auto px-6 py-3">
           {lineItems.length > 0 && (
             <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-100">
-              <div className="flex items-center gap-6 text-sm">
+              <div className="flex items-center gap-4 text-sm flex-wrap">
                 <div>
                   <span className="text-gray-500">Talent Fees:</span>
                   <span className="ml-1 font-medium text-gray-900">{formatCurrency(totals.talentFees)}</span>
                 </div>
                 <span className="text-gray-300">+</span>
                 <div>
-                  <span className="text-gray-500">Commission ({commissionRate}%):</span>
+                  <span className="text-gray-500">Commission:</span>
                   <span className="ml-1 font-medium text-gray-900">{formatCurrency(totals.commissions)}</span>
                 </div>
                 {enableAsf && (
                   <>
                     <span className="text-gray-300">+</span>
                     <div>
-                      <span className="text-gray-500">ASF ({asfRate}%):</span>
+                      <span className="text-gray-500">ASF:</span>
                       <span className="ml-1 font-medium text-gray-900">{formatCurrency(totals.asfTotal)}</span>
+                    </div>
+                  </>
+                )}
+                {enableDiscount && totals.discountAmount > 0 && (
+                  <>
+                    <span className="text-gray-300">−</span>
+                    <div>
+                      <span className="text-gray-500">Discount:</span>
+                      <span className="ml-1 font-medium text-green-600">{formatCurrency(totals.discountAmount)}</span>
                     </div>
                   </>
                 )}
@@ -808,6 +917,14 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
             <div className="flex items-center gap-3">
               <Button variant="secondary" onClick={onBack}>
                 Cancel
+              </Button>
+              <Button
+                variant="secondary"
+                icon={Eye}
+                onClick={() => setShowPreview(true)}
+                disabled={lineItems.length === 0}
+              >
+                Preview
               </Button>
               <Button
                 variant="secondary"
@@ -841,6 +958,134 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
         onConfirm={confirmRemoveItem}
         onCancel={() => setDeleteConfirm(null)}
       />
+
+      {/* Quote Preview Modal */}
+      {showPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowPreview(false)}></div>
+          <div className="relative bg-white rounded-xl shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Quote Preview</h3>
+              <button
+                onClick={() => setShowPreview(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content - Quote Preview */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* Quote Header */}
+              <div className="mb-6 pb-4 border-b-2 border-brand-500">
+                <h2 className="text-2xl font-bold text-brand-600">{profile?.company_name || 'Your Company'}</h2>
+                <p className="text-sm text-gray-500 mt-1">Quote Preview</p>
+              </div>
+
+              {/* Quote Info */}
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">Client</p>
+                  <p className="text-sm font-medium text-gray-900">
+                    {isNewClient ? clientFormData.name || 'New Client' : clients.find(c => c.id === selectedClientId)?.name || 'Select Client'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">Campaign</p>
+                  <p className="text-sm font-medium text-gray-900">{campaignName || 'Campaign Name'}</p>
+                </div>
+                {validUntil && (
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Valid Until</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {new Date(validUntil).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Line Items Table */}
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">Line Items</h4>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-gray-50 text-xs font-medium text-gray-500 border-b border-gray-200">
+                    <div className="col-span-3">Talent</div>
+                    <div className="col-span-4">Deliverable</div>
+                    <div className="col-span-1 text-center">Qty</div>
+                    <div className="col-span-2 text-right">Rate</div>
+                    <div className="col-span-2 text-right">Total</div>
+                  </div>
+                  <div className="divide-y divide-gray-100">
+                    {lineItems.map(item => {
+                      const itemTotal = item.deliverable_category === 'agency_fee'
+                        ? item.unit_price
+                        : item.unit_price * item.quantity;
+                      return (
+                        <div key={item.id} className="grid grid-cols-12 gap-2 px-4 py-2 text-sm">
+                          <div className="col-span-3 text-gray-900">{item.talent_name}</div>
+                          <div className="col-span-4 text-gray-600">{item.deliverable_name}</div>
+                          <div className="col-span-1 text-center text-gray-600">{item.quantity}</div>
+                          <div className="col-span-2 text-right text-gray-600">{formatCurrency(item.unit_price)}</div>
+                          <div className="col-span-2 text-right font-medium text-gray-900">{formatCurrency(itemTotal)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Totals */}
+              <div className="flex justify-end mb-6">
+                <div className="w-64 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Talent Fees</span>
+                    <span className="text-gray-900">{formatCurrency(totals.talentFees)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Commission ({commissionRate}%)</span>
+                    <span className="text-gray-900">{formatCurrency(totals.commissions)}</span>
+                  </div>
+                  {enableAsf && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">ASF ({asfRate}%)</span>
+                      <span className="text-gray-900">{formatCurrency(totals.asfTotal)}</span>
+                    </div>
+                  )}
+                  {enableDiscount && totals.discountAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Discount</span>
+                      <span className="text-green-600">-{formatCurrency(totals.discountAmount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between pt-2 border-t-2 border-gray-900">
+                    <span className="text-base font-bold text-gray-900">Grand Total</span>
+                    <span className="text-base font-bold text-brand-600">{formatCurrency(totals.total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Terms Preview */}
+              {termsAndConditions && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Terms & Conditions</h4>
+                  <p className="text-xs text-gray-600 whitespace-pre-wrap">{termsAndConditions}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setShowPreview(false)}>
+                Close
+              </Button>
+              <Button onClick={() => { setShowPreview(false); handleSubmit(false); }} disabled={isSubmitting}>
+                {isSubmitting ? 'Creating...' : 'Create Quote'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
