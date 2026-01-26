@@ -167,11 +167,6 @@ const TalentRoster = () => {
     }
   };
 
-  const handleAddToQuote = (talent: Talent) => {
-    // TODO: Implement add to quote functionality
-    console.log('Add to quote:', talent);
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -288,7 +283,6 @@ const TalentRoster = () => {
         onEdit={handleEdit}
         onDelete={handleDelete}
         onRefreshStats={handleRefreshStats}
-        onAddToQuote={handleAddToQuote}
       />
 
       {/* Talent Form Modal */}

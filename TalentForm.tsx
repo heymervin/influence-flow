@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Upload, Camera, Trash2 } from 'lucide-react';
 import { Talent, supabase } from './supabaseClient';
 import { useAuth } from './AuthContext';
 import Modal from './Modal';
@@ -50,6 +50,9 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Populate form when editing
   useEffect(() => {
@@ -63,6 +66,7 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
         bio: talent.bio || '',
         notes: talent.notes || '',
       });
+      setPreviewUrl(talent.avatar_url || null);
     } else {
       // Reset form for new talent
       setFormData({
@@ -74,10 +78,67 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
         bio: '',
         notes: '',
       });
+      setPreviewUrl(null);
     }
     setErrors({});
     setSubmitError(null);
   }, [talent, isOpen]);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setSubmitError('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setSubmitError('Image must be less than 5MB');
+      return;
+    }
+
+    setIsUploading(true);
+    setSubmitError(null);
+
+    try {
+      // Create a unique filename
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `talents/${fileName}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      // Update form data and preview
+      setFormData(prev => ({ ...prev, avatar_url: publicUrl }));
+      setPreviewUrl(publicUrl);
+    } catch (error: any) {
+      console.error('Error uploading image:', error);
+      setSubmitError(error.message || 'Failed to upload image');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    setFormData(prev => ({ ...prev, avatar_url: '' }));
+    setPreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -229,31 +290,67 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
           />
         </div>
 
-        {/* Avatar Preview */}
-        {formData.avatar_url && (
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-              <img
-                src={formData.avatar_url}
-                alt="Avatar preview"
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
+        {/* Photo Upload */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Photo
+          </label>
+          <div className="flex items-start gap-4">
+            {/* Preview */}
+            <div className="w-24 h-24 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 border-2 border-dashed border-gray-300">
+              {previewUrl ? (
+                <img
+                  src={previewUrl}
+                  alt="Avatar preview"
+                  className="w-full h-full object-cover"
+                  onError={() => setPreviewUrl(null)}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <Camera className="w-8 h-8 text-gray-400" />
+                </div>
+              )}
             </div>
-            <div className="flex-1">
-              <p className="text-sm text-gray-600">Current avatar</p>
-              <button
-                type="button"
-                onClick={() => setFormData(prev => ({ ...prev, avatar_url: '' }))}
-                className="text-sm text-red-600 hover:text-red-700"
+
+            {/* Upload Controls */}
+            <div className="flex-1 space-y-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileSelect}
+                className="hidden"
+                id="photo-upload"
+              />
+              <label
+                htmlFor="photo-upload"
+                className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg cursor-pointer transition-colors ${
+                  isUploading
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-brand-50 text-brand-600 hover:bg-brand-100'
+                }`}
               >
-                Remove
-              </button>
+                <Upload className="w-4 h-4" />
+                {isUploading ? 'Uploading...' : previewUrl ? 'Change Photo' : 'Upload Photo'}
+              </label>
+
+              {previewUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  className="flex items-center gap-1 text-sm text-red-600 hover:text-red-700"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Remove
+                </button>
+              )}
+
+              <p className="text-xs text-gray-500">
+                JPG, PNG or GIF. Max 5MB.
+              </p>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Bio */}
         <Textarea

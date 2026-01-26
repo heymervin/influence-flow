@@ -148,10 +148,13 @@ export interface Deal {
 }
 
 // Deliverable types (content types that talents can provide)
+export type DeliverableCategory = 'content' | 'paid_ad_rights' | 'talent_boosting' | 'ugc' | 'exclusivity' | 'agency_fee';
+
 export interface Deliverable {
   id: string;
   name: string;
-  platform: 'instagram' | 'tiktok' | 'youtube' | 'cross-platform';
+  platform: 'instagram' | 'tiktok' | 'youtube' | 'cross-platform' | 'all';
+  category: DeliverableCategory;
   display_order: number;
   is_active: boolean;
   created_at: string;

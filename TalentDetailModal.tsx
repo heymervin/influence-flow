@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Instagram, DollarSign, Calendar, Edit2, RefreshCw, Plus, Trash2, Award, User, Save } from 'lucide-react';
+import { Instagram, DollarSign, Calendar, Edit2, RefreshCw, Trash2, Award, User, Save } from 'lucide-react';
 import Modal from './Modal';
 import { Talent, Deliverable, supabase } from './supabaseClient';
 import { useDeliverables } from './hooks';
@@ -12,7 +12,6 @@ interface TalentDetailModalProps {
   onEdit?: (talent: Talent) => void;
   onDelete?: (talent: Talent) => void;
   onRefreshStats?: (talent: Talent) => void;
-  onAddToQuote?: (talent: Talent) => void;
 }
 
 type TabType = 'profile' | 'rates';
@@ -24,7 +23,6 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
   onEdit,
   onDelete,
   onRefreshStats,
-  onAddToQuote,
 }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -374,17 +372,22 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
               )}
             </div>
 
-            {/* Bio/Notes */}
-            {(talent.bio || talent.notes) && (
+            {/* Bio */}
+            {talent.bio && (
               <div>
-                <h4 className="text-lg font-semibold text-gray-900 mb-3">Bio & Notes</h4>
+                <h4 className="text-lg font-semibold text-gray-900 mb-3">Bio</h4>
                 <div className="bg-gray-50 rounded-lg p-4">
-                  {talent.bio && (
-                    <p className="text-gray-700 mb-3">{talent.bio}</p>
-                  )}
-                  {talent.notes && (
-                    <p className="text-gray-600 text-sm italic">{talent.notes}</p>
-                  )}
+                  <p className="text-gray-700">{talent.bio}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Internal Notes */}
+            {talent.notes && (
+              <div>
+                <h4 className="text-lg font-semibold text-gray-900 mb-3">Internal Notes</h4>
+                <div className="bg-amber-50 border border-amber-100 rounded-lg p-4">
+                  <p className="text-gray-700">{talent.notes}</p>
                 </div>
               </div>
             )}
@@ -510,19 +513,6 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               {isRefreshing ? 'Refreshing...' : 'Refresh Stats'}
-            </button>
-          )}
-
-          {onAddToQuote && (
-            <button
-              onClick={() => {
-                onAddToQuote(talent);
-                onClose();
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-            >
-              <Plus className="w-4 h-4" />
-              Add to Quote
             </button>
           )}
 
