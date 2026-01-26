@@ -1139,3 +1139,50 @@ export const useAllTalentCategories = () => {
     refetch: fetchAllTalentCategories
   };
 };
+
+// Terms Templates interface
+export interface TermsTemplate {
+  id: string;
+  user_id: string | null;
+  name: string;
+  content: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Terms Templates hook
+export const useTermsTemplates = () => {
+  const [templates, setTemplates] = useState<TermsTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const fetchTemplates = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('terms_templates')
+        .select('*')
+        .order('is_default', { ascending: false })
+        .order('name');
+
+      if (error) throw error;
+      setTemplates(data || []);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching terms templates:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getDefaultTemplate = () => {
+    return templates.find(t => t.is_default) || templates[0];
+  };
+
+  return { templates, loading, error, refetch: fetchTemplates, getDefaultTemplate };
+};
