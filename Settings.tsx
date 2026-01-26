@@ -1,12 +1,67 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Building2, Mail, Phone, FileText, Package, Plus, Trash2, Edit2, X, Check, GripVertical } from 'lucide-react';
+import { Save, Building2, Mail, Phone, FileText, Package, Plus, Trash2, Edit2, X, Check, Globe, Instagram } from 'lucide-react';
 import { useAuth } from './AuthContext';
-import { supabase, Deliverable } from './supabaseClient';
-import { useDeliverables } from './hooks';
+import { supabase, Deliverable, Platform } from './supabaseClient';
+import { useDeliverables, usePlatforms } from './hooks';
 import Input from './Input';
 import Textarea from './Textarea';
 import Button from './Button';
 import Select from './Select';
+
+// Platform icons
+const TikTokIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
+  </svg>
+);
+
+const YouTubeIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+  </svg>
+);
+
+const TwitchIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
+  </svg>
+);
+
+const getPlatformIcon = (iconName: string | undefined, className?: string) => {
+  switch (iconName) {
+    case 'instagram':
+      return <Instagram className={className} />;
+    case 'tiktok':
+      return <TikTokIcon className={className} />;
+    case 'youtube':
+      return <YouTubeIcon className={className} />;
+    case 'twitch':
+      return <TwitchIcon className={className} />;
+    default:
+      return <Globe className={className} />;
+  }
+};
+
+const COLOR_OPTIONS = [
+  { value: 'pink', label: 'Pink' },
+  { value: 'gray', label: 'Gray' },
+  { value: 'red', label: 'Red' },
+  { value: 'purple', label: 'Purple' },
+  { value: 'blue', label: 'Blue' },
+  { value: 'sky', label: 'Sky' },
+  { value: 'indigo', label: 'Indigo' },
+  { value: 'green', label: 'Green' },
+  { value: 'yellow', label: 'Yellow' },
+  { value: 'orange', label: 'Orange' },
+];
+
+const ICON_OPTIONS = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'twitch', label: 'Twitch' },
+  { value: 'globe', label: 'Globe (Generic)' },
+];
 
 interface CompanySettings {
   company_name: string;
@@ -38,7 +93,11 @@ const PLATFORM_OPTIONS = [
 
 const Settings = () => {
   const { user } = useAuth();
+  const { profile } = useAuth();
   const { deliverables, refetch: refetchDeliverables } = useDeliverables();
+  const { platforms, refetch: refetchPlatforms, createPlatform, updatePlatform, deletePlatform } = usePlatforms();
+
+  const isAdmin = profile?.role === 'admin';
 
   const [settings, setSettings] = useState<CompanySettings>({
     company_name: 'Influence Flow',
@@ -59,6 +118,21 @@ const Settings = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Platform management state
+  const [showAddPlatform, setShowAddPlatform] = useState(false);
+  const [newPlatformData, setNewPlatformData] = useState({
+    name: '',
+    slug: '',
+    icon_name: 'globe',
+    color: 'gray',
+    url_prefix: '',
+  });
+  const [addingPlatform, setAddingPlatform] = useState(false);
+  const [platformAddError, setPlatformAddError] = useState<string | null>(null);
+  const [editingPlatformId, setEditingPlatformId] = useState<string | null>(null);
+  const [editPlatformData, setEditPlatformData] = useState<Partial<Platform>>({});
+  const [deletingPlatformId, setDeletingPlatformId] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -259,6 +333,120 @@ const Settings = () => {
     'cross-platform': 'Cross-Platform',
   };
 
+  // Platform management functions
+  const handleAddPlatform = async () => {
+    const trimmedName = newPlatformData.name.trim();
+    const trimmedSlug = newPlatformData.slug.trim().toLowerCase().replace(/\s+/g, '-');
+
+    if (!trimmedName) {
+      setPlatformAddError('Please enter a platform name');
+      return;
+    }
+    if (!trimmedSlug) {
+      setPlatformAddError('Please enter a slug');
+      return;
+    }
+
+    // Check for duplicates
+    const isDuplicate = platforms.some(
+      (p) => p.name.toLowerCase() === trimmedName.toLowerCase() || p.slug === trimmedSlug
+    );
+    if (isDuplicate) {
+      setPlatformAddError('A platform with this name or slug already exists');
+      return;
+    }
+
+    setAddingPlatform(true);
+    setPlatformAddError(null);
+
+    try {
+      const maxOrder = platforms.reduce((max, p) => Math.max(max, p.display_order), 0);
+
+      await createPlatform({
+        name: trimmedName,
+        slug: trimmedSlug,
+        icon_name: newPlatformData.icon_name,
+        color: newPlatformData.color,
+        url_prefix: newPlatformData.url_prefix.trim() || undefined,
+        is_active: true,
+        display_order: maxOrder + 1,
+      });
+
+      setNewPlatformData({
+        name: '',
+        slug: '',
+        icon_name: 'globe',
+        color: 'gray',
+        url_prefix: '',
+      });
+      setShowAddPlatform(false);
+    } catch (error: any) {
+      console.error('Error adding platform:', error);
+      setPlatformAddError(error.message || 'Failed to add platform');
+    } finally {
+      setAddingPlatform(false);
+    }
+  };
+
+  const handleStartEditPlatform = (platform: Platform) => {
+    setEditingPlatformId(platform.id);
+    setEditPlatformData({
+      name: platform.name,
+      slug: platform.slug,
+      icon_name: platform.icon_name,
+      color: platform.color,
+      url_prefix: platform.url_prefix,
+      is_active: platform.is_active,
+    });
+  };
+
+  const handleSavePlatformEdit = async (platformId: string) => {
+    if (!editPlatformData.name?.trim()) return;
+
+    try {
+      await updatePlatform(platformId, {
+        name: editPlatformData.name.trim(),
+        icon_name: editPlatformData.icon_name,
+        color: editPlatformData.color,
+        url_prefix: editPlatformData.url_prefix?.trim(),
+        is_active: editPlatformData.is_active,
+      });
+      setEditingPlatformId(null);
+    } catch (error) {
+      console.error('Error updating platform:', error);
+    }
+  };
+
+  const handleDeletePlatform = async (platformId: string) => {
+    try {
+      // Check if this platform has any social accounts attached
+      const { count } = await supabase
+        .from('talent_social_accounts')
+        .select('*', { count: 'exact', head: true })
+        .eq('platform_id', platformId);
+
+      if (count && count > 0) {
+        if (!confirm(`This platform has ${count} talent account(s) attached. Deleting it will remove the platform reference from those accounts. Continue?`)) {
+          setDeletingPlatformId(null);
+          return;
+        }
+      }
+
+      await deletePlatform(platformId);
+      setDeletingPlatformId(null);
+    } catch (error) {
+      console.error('Error deleting platform:', error);
+    }
+  };
+
+  const handleTogglePlatformActive = async (platform: Platform) => {
+    try {
+      await updatePlatform(platform.id, { is_active: !platform.is_active });
+    } catch (error) {
+      console.error('Error toggling platform:', error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -393,7 +581,7 @@ const Settings = () => {
                     ) : (
                       <>
                         <span className="text-sm text-gray-900">{deliverable.name}</span>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1">
                           <button
                             onClick={() => handleStartEdit(deliverable)}
                             className="p-1.5 text-gray-500 hover:text-brand-600 hover:bg-brand-50 rounded"
@@ -439,6 +627,255 @@ const Settings = () => {
               <Package className="w-12 h-12 mx-auto mb-3 text-gray-300" />
               <p>No deliverables configured yet.</p>
               <p className="text-sm">Add your first deliverable type above.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Social Platforms Card */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center">
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+              <Globe className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Social Platforms</h2>
+              <p className="text-sm text-gray-500">Manage available social media platforms for talents</p>
+            </div>
+          </div>
+          {!showAddPlatform && isAdmin && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Plus}
+              onClick={() => setShowAddPlatform(true)}
+            >
+              Add Platform
+            </Button>
+          )}
+        </div>
+
+        {!isAdmin && (
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p className="text-sm text-yellow-800">Only administrators can modify platforms.</p>
+          </div>
+        )}
+
+        {/* Add New Platform Form */}
+        {showAddPlatform && isAdmin && (
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <h4 className="text-sm font-medium text-gray-900 mb-3">Add New Platform</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <Input
+                label="Platform Name"
+                placeholder="e.g., Threads"
+                value={newPlatformData.name}
+                onChange={(e) => {
+                  setNewPlatformData(prev => ({
+                    ...prev,
+                    name: e.target.value,
+                    slug: e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+                  }));
+                  setPlatformAddError(null);
+                }}
+              />
+              <Input
+                label="Slug (ID)"
+                placeholder="e.g., threads"
+                value={newPlatformData.slug}
+                onChange={(e) => {
+                  setNewPlatformData(prev => ({ ...prev, slug: e.target.value }));
+                  setPlatformAddError(null);
+                }}
+                helperText="Lowercase, no spaces"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+              <Select
+                label="Icon"
+                value={newPlatformData.icon_name}
+                onChange={(e) => setNewPlatformData(prev => ({ ...prev, icon_name: e.target.value }))}
+                options={ICON_OPTIONS}
+              />
+              <Select
+                label="Color"
+                value={newPlatformData.color}
+                onChange={(e) => setNewPlatformData(prev => ({ ...prev, color: e.target.value }))}
+                options={COLOR_OPTIONS}
+              />
+              <Input
+                label="URL Prefix"
+                placeholder="https://threads.net/@"
+                value={newPlatformData.url_prefix}
+                onChange={(e) => setNewPlatformData(prev => ({ ...prev, url_prefix: e.target.value }))}
+              />
+            </div>
+            {platformAddError && (
+              <p className="text-sm text-red-600 mb-3">{platformAddError}</p>
+            )}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                icon={Check}
+                onClick={handleAddPlatform}
+                disabled={addingPlatform}
+              >
+                {addingPlatform ? 'Adding...' : 'Add Platform'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={X}
+                onClick={() => {
+                  setShowAddPlatform(false);
+                  setNewPlatformData({
+                    name: '',
+                    slug: '',
+                    icon_name: 'globe',
+                    color: 'gray',
+                    url_prefix: '',
+                  });
+                  setPlatformAddError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Platforms List */}
+        <div className="space-y-2">
+          {platforms.map((platform) => (
+            <div
+              key={platform.id}
+              className={`flex items-center justify-between p-3 rounded-lg transition-colors ${
+                platform.is_active ? 'bg-gray-50 hover:bg-gray-100' : 'bg-gray-100 opacity-60'
+              }`}
+            >
+              {editingPlatformId === platform.id && isAdmin ? (
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-2 mr-2">
+                  <input
+                    type="text"
+                    value={editPlatformData.name || ''}
+                    onChange={(e) => setEditPlatformData(prev => ({ ...prev, name: e.target.value }))}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                    placeholder="Name"
+                  />
+                  <select
+                    value={editPlatformData.icon_name || 'globe'}
+                    onChange={(e) => setEditPlatformData(prev => ({ ...prev, icon_name: e.target.value }))}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500"
+                  >
+                    {ICON_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={editPlatformData.color || 'gray'}
+                    onChange={(e) => setEditPlatformData(prev => ({ ...prev, color: e.target.value }))}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500"
+                  >
+                    {COLOR_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={editPlatformData.url_prefix || ''}
+                    onChange={(e) => setEditPlatformData(prev => ({ ...prev, url_prefix: e.target.value }))}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                    placeholder="URL Prefix"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center bg-${platform.color}-100`}>
+                    {getPlatformIcon(platform.icon_name, `w-4 h-4 text-${platform.color}-600`)}
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-900">{platform.name}</span>
+                    <span className="text-xs text-gray-500 ml-2">({platform.slug})</span>
+                    {!platform.is_active && (
+                      <span className="text-xs text-orange-600 ml-2">(Disabled)</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {isAdmin && (
+                <div className="flex items-center gap-1">
+                  {editingPlatformId === platform.id ? (
+                    <>
+                      <button
+                        onClick={() => handleSavePlatformEdit(platform.id)}
+                        className="p-1.5 text-green-600 hover:bg-green-100 rounded"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setEditingPlatformId(null)}
+                        className="p-1.5 text-gray-500 hover:bg-gray-200 rounded"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => handleTogglePlatformActive(platform)}
+                        className={`px-2 py-1 text-xs rounded ${
+                          platform.is_active
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                        }`}
+                      >
+                        {platform.is_active ? 'Active' : 'Disabled'}
+                      </button>
+                      <button
+                        onClick={() => handleStartEditPlatform(platform)}
+                        className="p-1.5 text-gray-500 hover:text-brand-600 hover:bg-brand-50 rounded"
+                        title="Edit"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      {deletingPlatformId === platform.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleDeletePlatform(platform.id)}
+                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => setDeletingPlatformId(null)}
+                            className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeletingPlatformId(platform.id)}
+                          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {platforms.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              <Globe className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+              <p>No platforms configured yet.</p>
+              <p className="text-sm">Add your first platform above.</p>
             </div>
           )}
         </div>

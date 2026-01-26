@@ -44,16 +44,9 @@ export interface Talent {
   category: string;
   status: 'active' | 'on-hold' | 'inactive';
   avatar_url?: string;
-  instagram_handle?: string;
-  tiktok_handle?: string;
-  followers?: string; // Legacy text display (e.g., "10K")
-  follower_count?: number; // Instagram follower count (numeric)
-  tiktok_follower_count?: number; // TikTok follower count (numeric)
-  engagement_rate?: number;
   bio?: string;
   notes?: string;
   source_url?: string;
-  last_stats_update?: string;
   created_at: string;
   updated_at: string;
 }
@@ -176,3 +169,45 @@ export interface TalentRate {
 
 // Keep Service as alias for backward compatibility
 export type Service = Deliverable;
+
+// Platform entity from database
+export interface Platform {
+  id: string;
+  name: string;
+  slug: string;
+  icon_name?: string;
+  color: string;
+  url_prefix?: string;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Social media platforms supported (legacy type for backward compatibility)
+export type SocialPlatform = string;
+
+// Social account for a talent
+export interface TalentSocialAccount {
+  id: string;
+  talent_id: string;
+  platform: string; // slug from platforms table
+  platform_id?: string; // foreign key to platforms table
+  handle: string;
+  follower_count?: number;
+  profile_url?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Platform display configuration (legacy - kept for backward compatibility during migration)
+// New code should use the usePlatforms() hook instead
+export const SOCIAL_PLATFORMS: Record<string, { name: string; color: string; urlPrefix: string }> = {
+  instagram: { name: 'Instagram', color: 'pink', urlPrefix: 'https://instagram.com/' },
+  tiktok: { name: 'TikTok', color: 'gray', urlPrefix: 'https://tiktok.com/@' },
+  youtube: { name: 'YouTube', color: 'red', urlPrefix: 'https://youtube.com/@' },
+  twitch: { name: 'Twitch', color: 'purple', urlPrefix: 'https://twitch.tv/' },
+  linkedin: { name: 'LinkedIn', color: 'blue', urlPrefix: 'https://linkedin.com/in/' },
+  twitter: { name: 'Twitter/X', color: 'sky', urlPrefix: 'https://twitter.com/' },
+  facebook: { name: 'Facebook', color: 'indigo', urlPrefix: 'https://facebook.com/' },
+};

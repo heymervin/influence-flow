@@ -1,17 +1,60 @@
 import React, { useState, useEffect } from 'react';
-import { Instagram, DollarSign, Calendar, Edit2, RefreshCw, Trash2, Award, User, Save } from 'lucide-react';
+import { Instagram, DollarSign, Calendar, Edit2, RefreshCw, Trash2, Award, User, Save, Globe } from 'lucide-react';
 import Modal from './Modal';
 import { Talent, Deliverable, supabase } from './supabaseClient';
-import { useDeliverables } from './hooks';
+import { useDeliverables, useTalentSocialAccounts, usePlatforms } from './hooks';
 import Button from './Button';
 import { formatFollowerCount } from './utils';
 
-// TikTok icon component (Lucide doesn't have one)
+// Platform icons
 const TikTokIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
     <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
   </svg>
 );
+
+const YouTubeIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+  </svg>
+);
+
+const TwitchIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
+  </svg>
+);
+
+const getPlatformIcon = (iconName: string | undefined, className?: string) => {
+  switch (iconName) {
+    case 'instagram':
+      return <Instagram className={className} />;
+    case 'tiktok':
+      return <TikTokIcon className={className} />;
+    case 'youtube':
+      return <YouTubeIcon className={className} />;
+    case 'twitch':
+      return <TwitchIcon className={className} />;
+    default:
+      return <Globe className={className} />;
+  }
+};
+
+const getPlatformColorClasses = (color: string | undefined): string => {
+  const colorMap: Record<string, string> = {
+    pink: 'from-pink-50 to-purple-50 text-pink-600',
+    gray: 'from-gray-50 to-gray-100 text-gray-700',
+    red: 'from-red-50 to-red-100 text-red-600',
+    purple: 'from-purple-50 to-purple-100 text-purple-600',
+    blue: 'from-blue-50 to-blue-100 text-blue-600',
+    sky: 'from-sky-50 to-sky-100 text-sky-600',
+    indigo: 'from-indigo-50 to-indigo-100 text-indigo-600',
+    green: 'from-green-50 to-green-100 text-green-600',
+    yellow: 'from-yellow-50 to-yellow-100 text-yellow-600',
+    orange: 'from-orange-50 to-orange-100 text-orange-600',
+  };
+  return colorMap[color || 'gray'] || 'from-gray-50 to-gray-100 text-gray-600';
+};
 
 interface TalentDetailModalProps {
   talent: Talent | null;
@@ -42,6 +85,10 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
     lastDealDate: null as string | null,
   });
   const [loadingStats, setLoadingStats] = useState(false);
+
+  // Social accounts
+  const { accounts: socialAccounts, loading: loadingSocialAccounts } = useTalentSocialAccounts(talent?.id || null);
+  const { getPlatformBySlug } = usePlatforms();
 
   // Rates state
   const { deliverables } = useDeliverables();
@@ -228,7 +275,14 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
     }
   };
 
-  const daysSinceUpdate = getDaysSinceUpdate(talent.last_stats_update);
+  // Get the most recent update from social accounts
+  const lastSocialUpdate = socialAccounts.length > 0
+    ? socialAccounts.reduce<string>((latest, acc) => {
+        if (!acc.updated_at) return latest;
+        return !latest || acc.updated_at > latest ? acc.updated_at : latest;
+      }, '')
+    : null;
+  const daysSinceUpdate = getDaysSinceUpdate(lastSocialUpdate);
 
   // Group deliverables by platform
   const deliverablesByPlatform = deliverables.reduce((acc, d) => {
@@ -278,27 +332,34 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
 
             {/* Social Handles */}
             <div className="flex flex-wrap gap-3 mt-3">
-              {talent.instagram_handle && (
-                <a
-                  href={`https://instagram.com/${talent.instagram_handle.replace('@', '')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-pink-600 hover:text-pink-700 font-medium transition-colors"
-                >
-                  <Instagram className="w-4 h-4" />
-                  @{talent.instagram_handle.replace('@', '')}
-                </a>
-              )}
-              {talent.tiktok_handle && (
-                <a
-                  href={`https://tiktok.com/@${talent.tiktok_handle.replace('@', '')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-gray-800 hover:text-black font-medium transition-colors"
-                >
-                  <TikTokIcon className="w-4 h-4" />
-                  @{talent.tiktok_handle.replace('@', '')}
-                </a>
+              {loadingSocialAccounts ? (
+                <span className="text-sm text-gray-400">Loading...</span>
+              ) : socialAccounts.length > 0 ? (
+                socialAccounts.map((account) => {
+                  const platform = getPlatformBySlug(account.platform);
+                  const profileUrl = account.profile_url || (platform?.url_prefix ? `${platform.url_prefix}${account.handle}` : `#`);
+                  return (
+                    <a
+                      key={account.id}
+                      href={profileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1.5 text-sm font-medium transition-colors hover:opacity-80 ${
+                        platform?.color === 'pink' ? 'text-pink-600' :
+                        platform?.color === 'red' ? 'text-red-600' :
+                        platform?.color === 'purple' ? 'text-purple-600' :
+                        platform?.color === 'blue' ? 'text-blue-600' :
+                        platform?.color === 'sky' ? 'text-sky-500' :
+                        'text-gray-700'
+                      }`}
+                    >
+                      {getPlatformIcon(platform?.icon_name, 'w-4 h-4')}
+                      @{account.handle}
+                    </a>
+                  );
+                })
+              ) : (
+                <span className="text-sm text-gray-400">No social accounts</span>
               )}
             </div>
           </div>
@@ -336,27 +397,35 @@ const TalentDetailModal: React.FC<TalentDetailModalProps> = ({
         {/* Tab Content */}
         {activeTab === 'profile' && (
           <>
-            {/* Stats Grid */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-lg p-4">
-                <div className="flex items-center gap-2 text-pink-600 text-sm mb-1">
-                  <Instagram className="w-4 h-4" />
-                  Instagram
-                </div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {formatFollowerCount(talent.follower_count)}
-                </div>
+            {/* Social Stats Grid */}
+            {loadingSocialAccounts ? (
+              <div className="text-center py-4 text-gray-500">Loading social stats...</div>
+            ) : socialAccounts.length > 0 ? (
+              <div className={`grid gap-4 ${socialAccounts.length === 1 ? 'grid-cols-1' : socialAccounts.length === 2 ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-3'}`}>
+                {socialAccounts.map((account) => {
+                  const platform = getPlatformBySlug(account.platform);
+                  const colorClasses = getPlatformColorClasses(platform?.color);
+                  return (
+                    <div key={account.id} className={`bg-gradient-to-br ${colorClasses.split(' ').slice(0, 2).join(' ')} rounded-lg p-4`}>
+                      <div className={`flex items-center gap-2 text-sm mb-1 ${colorClasses.split(' ').slice(2).join(' ')}`}>
+                        {getPlatformIcon(platform?.icon_name, 'w-4 h-4')}
+                        {platform?.name || account.platform}
+                      </div>
+                      <div className="text-2xl font-bold text-gray-900">
+                        {formatFollowerCount(account.follower_count)}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        @{account.handle}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg p-4">
-                <div className="flex items-center gap-2 text-gray-700 text-sm mb-1">
-                  <TikTokIcon className="w-4 h-4" />
-                  TikTok
-                </div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {formatFollowerCount(talent.tiktok_follower_count)}
-                </div>
+            ) : (
+              <div className="bg-gray-50 rounded-lg p-4 text-center text-gray-500">
+                No social accounts linked
               </div>
-            </div>
+            )}
 
             {/* Revenue Stats */}
             <div>

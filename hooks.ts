@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from './supabaseClient';
-import type { Talent, Quote, Deal, Client, Deliverable, TalentRate } from './supabaseClient';
+import type { Talent, Quote, Deal, Client, Deliverable, TalentRate, TalentSocialAccount, SocialPlatform, Platform } from './supabaseClient';
 
 export const useTalents = () => {
   const [talents, setTalents] = useState<Talent[]>([]);
@@ -652,4 +652,258 @@ export const useAllTalentRates = () => {
   };
 
   return { ratesMap, getRate, loading, error, refetch: fetchAllRates };
+};
+
+// Social accounts hook - fetch and manage social accounts for a talent
+export const useTalentSocialAccounts = (talentId: string | null) => {
+  const [accounts, setAccounts] = useState<TalentSocialAccount[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchAccounts = useCallback(async () => {
+    if (!talentId) {
+      setAccounts([]);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('talent_social_accounts')
+        .select('*')
+        .eq('talent_id', talentId)
+        .order('platform', { ascending: true });
+
+      if (error) throw error;
+      setAccounts(data || []);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching social accounts:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [talentId]);
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
+
+  const addAccount = async (account: Omit<TalentSocialAccount, 'id' | 'created_at' | 'updated_at'>) => {
+    try {
+      const { data, error } = await supabase
+        .from('talent_social_accounts')
+        .insert([account])
+        .select()
+        .single();
+
+      if (error) throw error;
+      setAccounts(prev => [...prev, data]);
+      return data;
+    } catch (err) {
+      console.error('Error adding social account:', err);
+      throw err;
+    }
+  };
+
+  const updateAccount = async (id: string, updates: Partial<TalentSocialAccount>) => {
+    try {
+      const { data, error } = await supabase
+        .from('talent_social_accounts')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      setAccounts(prev => prev.map(acc => acc.id === id ? data : acc));
+      return data;
+    } catch (err) {
+      console.error('Error updating social account:', err);
+      throw err;
+    }
+  };
+
+  const deleteAccount = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('talent_social_accounts')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      setAccounts(prev => prev.filter(acc => acc.id !== id));
+    } catch (err) {
+      console.error('Error deleting social account:', err);
+      throw err;
+    }
+  };
+
+  return {
+    accounts,
+    loading,
+    error,
+    refetch: fetchAccounts,
+    addAccount,
+    updateAccount,
+    deleteAccount
+  };
+};
+
+// Fetch social accounts for multiple talents (for roster display)
+export const useAllTalentSocialAccounts = () => {
+  const [accountsMap, setAccountsMap] = useState<Map<string, TalentSocialAccount[]>>(new Map());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchAllAccounts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('talent_social_accounts')
+        .select('*')
+        .order('platform', { ascending: true });
+
+      if (error) throw error;
+
+      // Group by talent_id
+      const map = new Map<string, TalentSocialAccount[]>();
+      data?.forEach((account) => {
+        if (!map.has(account.talent_id)) {
+          map.set(account.talent_id, []);
+        }
+        map.get(account.talent_id)!.push(account);
+      });
+
+      setAccountsMap(map);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching all social accounts:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAllAccounts();
+  }, [fetchAllAccounts]);
+
+  const getAccountsForTalent = (talentId: string): TalentSocialAccount[] => {
+    return accountsMap.get(talentId) || [];
+  };
+
+  return {
+    accountsMap,
+    getAccountsForTalent,
+    loading,
+    error,
+    refetch: fetchAllAccounts
+  };
+};
+
+// Platforms hook - fetch all platforms from database
+export const usePlatforms = () => {
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchPlatforms = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('platforms')
+        .select('*')
+        .order('display_order', { ascending: true });
+
+      if (error) throw error;
+      setPlatforms(data || []);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching platforms:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPlatforms();
+  }, [fetchPlatforms]);
+
+  // Get active platforms only
+  const activePlatforms = platforms.filter(p => p.is_active);
+
+  // Get platform by slug
+  const getPlatformBySlug = (slug: string): Platform | undefined => {
+    return platforms.find(p => p.slug === slug);
+  };
+
+  // Get platform by ID
+  const getPlatformById = (id: string): Platform | undefined => {
+    return platforms.find(p => p.id === id);
+  };
+
+  // Create a new platform (admin only)
+  const createPlatform = async (platform: Omit<Platform, 'id' | 'created_at' | 'updated_at'>) => {
+    try {
+      const { data, error } = await supabase
+        .from('platforms')
+        .insert([platform])
+        .select()
+        .single();
+
+      if (error) throw error;
+      setPlatforms(prev => [...prev, data].sort((a, b) => a.display_order - b.display_order));
+      return data;
+    } catch (err) {
+      console.error('Error creating platform:', err);
+      throw err;
+    }
+  };
+
+  // Update a platform (admin only)
+  const updatePlatform = async (id: string, updates: Partial<Platform>) => {
+    try {
+      const { data, error } = await supabase
+        .from('platforms')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      setPlatforms(prev => prev.map(p => p.id === id ? data : p).sort((a, b) => a.display_order - b.display_order));
+      return data;
+    } catch (err) {
+      console.error('Error updating platform:', err);
+      throw err;
+    }
+  };
+
+  // Delete a platform (admin only)
+  const deletePlatform = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('platforms')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      setPlatforms(prev => prev.filter(p => p.id !== id));
+    } catch (err) {
+      console.error('Error deleting platform:', err);
+      throw err;
+    }
+  };
+
+  return {
+    platforms,
+    activePlatforms,
+    loading,
+    error,
+    refetch: fetchPlatforms,
+    getPlatformBySlug,
+    getPlatformById,
+    createPlatform,
+    updatePlatform,
+    deletePlatform
+  };
 };

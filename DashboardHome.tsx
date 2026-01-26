@@ -1,6 +1,7 @@
 import React from 'react';
-import { ArrowUpRight, TrendingUp, TrendingDown } from 'lucide-react';
-import { useDashboardStats, useQuotes, useTalents, useRevenueStats } from './hooks';
+import { TrendingUp, TrendingDown } from 'lucide-react';
+import { useDashboardStats, useQuotes, useTalents, useRevenueStats, useAllTalentSocialAccounts } from './hooks';
+import { formatFollowerCount } from './utils';
 import Badge from './Badge';
 import Button from './Button';
 
@@ -9,11 +10,21 @@ const DashboardHome = () => {
   const { stats: revenueStats, loading: revenueLoading } = useRevenueStats();
   const { quotes, loading: quotesLoading } = useQuotes();
   const { talents, loading: talentsLoading } = useTalents();
+  const { getAccountsForTalent, loading: socialLoading } = useAllTalentSocialAccounts();
 
   const recentQuotes = quotes.slice(0, 5);
+
+  // Get total followers for a talent across all platforms
+  const getTotalFollowers = (talentId: string) => {
+    const accounts = getAccountsForTalent(talentId);
+    return accounts.reduce((sum, acc) => sum + (acc.follower_count || 0), 0);
+  };
+
+  // Top talents by follower count
   const topTalents = talents
-    .filter(t => t.engagement_rate)
-    .sort((a, b) => (b.engagement_rate || 0) - (a.engagement_rate || 0))
+    .map(t => ({ ...t, totalFollowers: getTotalFollowers(t.id) }))
+    .filter(t => t.totalFollowers > 0)
+    .sort((a, b) => b.totalFollowers - a.totalFollowers)
     .slice(0, 4);
 
   const formatCurrency = (cents: number) => {
@@ -138,7 +149,7 @@ const DashboardHome = () => {
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-gray-900">Top Performers</h3>
           </div>
-          {talentsLoading ? (
+          {talentsLoading || socialLoading ? (
             <div className="text-center py-8 text-gray-500">Loading talents...</div>
           ) : topTalents.length === 0 ? (
             <div className="text-center py-8 text-gray-500">No talents yet. Add your first talent!</div>
@@ -161,8 +172,8 @@ const DashboardHome = () => {
                     <p className="text-xs text-gray-500 truncate">{talent.category}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold text-gray-900">{talent.engagement_rate}%</p>
-                    <p className="text-xs text-gray-500">Eng.</p>
+                    <p className="text-sm font-semibold text-gray-900">{formatFollowerCount(talent.totalFollowers)}</p>
+                    <p className="text-xs text-gray-500">Followers</p>
                   </div>
                 </div>
               ))}

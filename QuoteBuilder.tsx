@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, Plus, Trash2, Search, X, ChevronDown, Instagram } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { supabase, Client, Talent, Deliverable } from './supabaseClient';
-import { useTalents, useDeliverables, useAllTalentRates } from './hooks';
+import { useTalents, useDeliverables, useAllTalentRates, useAllTalentSocialAccounts } from './hooks';
+import { formatFollowerCount } from './utils';
 import Input from './Input';
 import Select from './Select';
 import Textarea from './Textarea';
@@ -59,6 +60,7 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
   const { talents } = useTalents();
   const { deliverables, loading: deliverablesLoading } = useDeliverables();
   const { getRate, loading: ratesLoading } = useAllTalentRates();
+  const { getAccountsForTalent } = useAllTalentSocialAccounts();
 
   // Client & Campaign
   const [clients, setClients] = useState<Client[]>([]);
@@ -131,13 +133,17 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
   // Filter talents based on search and category filter
   const filteredTalents = useMemo(() => {
     return talents.filter(talent => {
+      const accounts = getAccountsForTalent(talent.id);
+      const handlesMatch = accounts.some(a =>
+        a.handle.toLowerCase().includes(talentSearch.toLowerCase())
+      );
       const matchesSearch = !talentSearch ||
         talent.name.toLowerCase().includes(talentSearch.toLowerCase()) ||
-        talent.instagram_handle?.toLowerCase().includes(talentSearch.toLowerCase());
+        handlesMatch;
       const matchesFilter = !talentFilter || talent.category === talentFilter;
       return matchesSearch && matchesFilter;
     });
-  }, [talents, talentSearch, talentFilter]);
+  }, [talents, talentSearch, talentFilter, getAccountsForTalent]);
 
   // Get unique talent categories for filter
   const talentCategories = useMemo(() => {
@@ -604,15 +610,19 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
                               <p className="text-sm font-medium text-gray-900 truncate">{talent.name}</p>
                               <p className="text-xs text-gray-500 flex items-center gap-2">
                                 <span>{talent.category}</span>
-                                {talent.followers && (
-                                  <>
-                                    <span>•</span>
-                                    <span className="flex items-center">
-                                      <Instagram className="w-3 h-3 mr-1" />
-                                      {talent.followers}
-                                    </span>
-                                  </>
-                                )}
+                                {(() => {
+                                  const accounts = getAccountsForTalent(talent.id);
+                                  const igAccount = accounts.find(a => a.platform === 'instagram');
+                                  return igAccount?.follower_count ? (
+                                    <>
+                                      <span>•</span>
+                                      <span className="flex items-center">
+                                        <Instagram className="w-3 h-3 mr-1" />
+                                        {formatFollowerCount(igAccount.follower_count)}
+                                      </span>
+                                    </>
+                                  ) : null;
+                                })()}
                               </p>
                             </div>
                             {selectedTalentId === talent.id && (

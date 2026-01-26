@@ -1,23 +1,64 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, Instagram, ChevronRight, RefreshCw } from 'lucide-react';
-import { useTalents } from './hooks';
+import { Plus, Search, Filter, Instagram, ChevronRight, RefreshCw, Globe } from 'lucide-react';
+import { useTalents, useAllTalentSocialAccounts } from './hooks';
 import TalentDetailModal from './TalentDetailModal';
-import { Talent, supabase } from './supabaseClient';
+import { Talent, supabase, SocialPlatform } from './supabaseClient';
 import { scrapeInstagramStats, scrapeMultipleInstagramStats } from './apifyService';
 import Badge from './Badge';
 import Button from './Button';
 import TalentForm from './TalentForm';
 import { formatFollowerCount } from './utils';
 
-// TikTok icon component (Lucide doesn't have one)
+// Platform icons
 const TikTokIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
     <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
   </svg>
 );
 
+const YouTubeIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+  </svg>
+);
+
+const TwitchIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
+  </svg>
+);
+
+const getPlatformIcon = (platform: SocialPlatform, className?: string) => {
+  switch (platform) {
+    case 'instagram':
+      return <Instagram className={className} />;
+    case 'tiktok':
+      return <TikTokIcon className={className} />;
+    case 'youtube':
+      return <YouTubeIcon className={className} />;
+    case 'twitch':
+      return <TwitchIcon className={className} />;
+    default:
+      return <Globe className={className} />;
+  }
+};
+
+const getPlatformIconColor = (platform: SocialPlatform): string => {
+  const colors: Record<SocialPlatform, string> = {
+    instagram: 'text-pink-600',
+    tiktok: 'text-gray-800',
+    youtube: 'text-red-600',
+    twitch: 'text-purple-600',
+    linkedin: 'text-blue-600',
+    twitter: 'text-sky-500',
+    facebook: 'text-indigo-600',
+  };
+  return colors[platform] || 'text-gray-600';
+};
+
 const TalentRoster = () => {
   const { talents, loading, error, refetch } = useTalents();
+  const { getAccountsForTalent } = useAllTalentSocialAccounts();
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
@@ -90,25 +131,26 @@ const TalentRoster = () => {
   };
 
   const handleRefreshStats = async (talent: Talent) => {
-    if (!talent.instagram_handle) {
-      alert('No Instagram handle found for this talent');
+    const talentAccounts = getAccountsForTalent(talent.id);
+    const instagramAccount = talentAccounts.find(a => a.platform === 'instagram');
+
+    if (!instagramAccount) {
+      alert('No Instagram account found for this talent');
       return;
     }
 
     try {
       setRefreshError(null);
-      const stats = await scrapeInstagramStats(talent.instagram_handle);
+      const stats = await scrapeInstagramStats(instagramAccount.handle);
 
-      // Update talent in database
+      // Update social account in database
       const { error: updateError } = await supabase
-        .from('talents')
+        .from('talent_social_accounts')
         .update({
           follower_count: stats.follower_count,
-          followers: stats.followers,
-          engagement_rate: stats.engagement_rate,
-          last_stats_update: stats.last_stats_update,
+          updated_at: new Date().toISOString(),
         })
-        .eq('id', talent.id);
+        .eq('id', instagramAccount.id);
 
       if (updateError) {
         throw updateError;
@@ -126,14 +168,21 @@ const TalentRoster = () => {
   };
 
   const handleRefreshAll = async () => {
-    const talentsWithHandles = talents.filter(t => t.instagram_handle);
+    // Get all Instagram accounts from the social accounts
+    const allInstagramAccounts = talents
+      .map(t => {
+        const accounts = getAccountsForTalent(t.id);
+        const igAccount = accounts.find(a => a.platform === 'instagram');
+        return igAccount ? { talentId: t.id, account: igAccount } : null;
+      })
+      .filter(Boolean) as { talentId: string; account: { id: string; handle: string } }[];
 
-    if (talentsWithHandles.length === 0) {
-      alert('No talents with Instagram handles found');
+    if (allInstagramAccounts.length === 0) {
+      alert('No talents with Instagram accounts found');
       return;
     }
 
-    if (!confirm(`Refresh stats for ${talentsWithHandles.length} talents? This may take a few minutes.`)) {
+    if (!confirm(`Refresh stats for ${allInstagramAccounts.length} talents? This may take a few minutes.`)) {
       return;
     }
 
@@ -141,23 +190,21 @@ const TalentRoster = () => {
     setRefreshError(null);
 
     try {
-      const handles = talentsWithHandles.map(t => t.instagram_handle!);
+      const handles = allInstagramAccounts.map(item => item.account.handle);
       const statsMap = await scrapeMultipleInstagramStats(handles);
 
-      // Update all talents in database
-      const updates = talentsWithHandles.map(talent => {
-        const stats = statsMap.get(talent.instagram_handle!);
+      // Update all social accounts in database
+      const updates = allInstagramAccounts.map(item => {
+        const stats = statsMap.get(item.account.handle);
         if (!stats) return null;
 
         return supabase
-          .from('talents')
+          .from('talent_social_accounts')
           .update({
             follower_count: stats.follower_count,
-            followers: stats.followers,
-            engagement_rate: stats.engagement_rate,
-            last_stats_update: stats.last_stats_update,
+            updated_at: new Date().toISOString(),
           })
-          .eq('id', talent.id);
+          .eq('id', item.account.id);
       }).filter(Boolean);
 
       await Promise.all(updates);
@@ -165,7 +212,7 @@ const TalentRoster = () => {
       // Refresh the talent list
       await refetch();
 
-      alert(`Successfully refreshed stats for ${talentsWithHandles.length} talents!`);
+      alert(`Successfully refreshed stats for ${allInstagramAccounts.length} talents!`);
     } catch (error) {
       console.error('Error refreshing all stats:', error);
       setRefreshError(error instanceof Error ? error.message : 'Failed to refresh stats');
@@ -254,16 +301,16 @@ const TalentRoster = () => {
 
                 <div className="mb-3 py-2 border-y border-gray-100 space-y-1">
                   <p className="text-xs text-gray-500 mb-1">Followers</p>
-                  <div className="flex items-center gap-3">
-                    <p className="text-sm font-semibold text-gray-900 flex items-center">
-                      <Instagram className="w-3 h-3 mr-1 text-pink-600" />
-                      {formatFollowerCount(talent.follower_count)}
-                    </p>
-                    {(talent.tiktok_handle || talent.tiktok_follower_count) && (
-                      <p className="text-sm font-semibold text-gray-900 flex items-center">
-                        <TikTokIcon className="w-3 h-3 mr-1" />
-                        {formatFollowerCount(talent.tiktok_follower_count)}
-                      </p>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {getAccountsForTalent(talent.id).length > 0 ? (
+                      getAccountsForTalent(talent.id).slice(0, 3).map((account) => (
+                        <p key={account.id} className={`text-sm font-semibold text-gray-900 flex items-center ${getPlatformIconColor(account.platform)}`}>
+                          {getPlatformIcon(account.platform, 'w-3 h-3 mr-1')}
+                          {formatFollowerCount(account.follower_count)}
+                        </p>
+                      ))
+                    ) : (
+                      <p className="text-sm text-gray-400">No accounts</p>
                     )}
                   </div>
                 </div>
