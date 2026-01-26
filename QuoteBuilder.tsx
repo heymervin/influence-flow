@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Trash2, Search, X, HelpCircle, Save, FileText, Check, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Trash2, X, HelpCircle, Save, FileText, Check, AlertCircle } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { supabase } from './supabaseClient';
 import { useTalents, useDeliverables, useClients, useTermsTemplates } from './hooks';
 import Textarea from './Textarea';
 import Button from './Button';
 import RateCardView from './RateCardView';
+import TalentSearchFilter from './TalentSearchFilter';
 
 interface QuoteBuilderProps {
   onBack: () => void;
@@ -128,9 +129,6 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
 
   // Line Items
   const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
-
-  // Talent Search for Rate Card
-  const [talentSearch, setTalentSearch] = useState('');
 
   // Commission & ASF Settings
   const [commissionRate, setCommissionRate] = useState('15');
@@ -538,42 +536,10 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
           <div className="p-6">
             {/* Talent Search/Selection - Show when no talent selected */}
             {!rateCardTalentId ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Select Talent</label>
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search talents..."
-                    value={talentSearch}
-                    onChange={(e) => setTalentSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500"
-                  />
-                </div>
-
-                {/* Talent Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-                  {talents
-                    .filter(t => t.name.toLowerCase().includes(talentSearch.toLowerCase()))
-                    .map(talent => (
-                      <button
-                        key={talent.id}
-                        onClick={() => {
-                          setRateCardTalentId(talent.id);
-                          setTalentSearch('');
-                        }}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-left bg-white border border-gray-200 hover:border-brand-300 hover:bg-brand-50 transition-colors"
-                      >
-                        <img
-                          src={talent.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(talent.name)}`}
-                          alt={talent.name}
-                          className="w-8 h-8 rounded-full object-cover object-top"
-                        />
-                        <span className="text-sm font-medium text-gray-700 truncate">{talent.name}</span>
-                      </button>
-                    ))}
-                </div>
-              </div>
+              <TalentSearchFilter
+                talents={talents}
+                onSelectTalent={(talentId) => setRateCardTalentId(talentId)}
+              />
             ) : (
               /* Rate Card View - Show when talent is selected */
               <RateCardView
