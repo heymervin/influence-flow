@@ -1342,3 +1342,488 @@ export const useAddonRules = (baseDeliverableIds: string[]) => {
 
   return { rules, getAddonsForBase, loading };
 };
+
+// Platform summary hook for Settings page
+export interface PlatformSummary {
+  platform: string;
+  content_count: number;
+  ugc_count: number;
+  addon_count: number;
+  is_active: boolean;
+}
+
+export const usePlatformSummary = () => {
+  const [platforms, setPlatforms] = useState<PlatformSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchPlatformSummary = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('deliverables')
+        .select('platform, category, is_addon, is_active');
+
+      if (error) throw error;
+
+      // Group by platform
+      const platformMap = new Map<string, PlatformSummary>();
+
+      (data || []).forEach((d: any) => {
+        if (!platformMap.has(d.platform)) {
+          platformMap.set(d.platform, {
+            platform: d.platform,
+            content_count: 0,
+            ugc_count: 0,
+            addon_count: 0,
+            is_active: true,
+          });
+        }
+
+        const summary = platformMap.get(d.platform)!;
+        if (d.category === 'content') summary.content_count++;
+        else if (d.category === 'ugc') summary.ugc_count++;
+        else if (d.is_addon) summary.addon_count++;
+      });
+
+      setPlatforms(Array.from(platformMap.values()));
+    } catch (err) {
+      console.error('Error fetching platform summary:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPlatformSummary();
+  }, [fetchPlatformSummary]);
+
+  return { platforms, loading, refetch: fetchPlatformSummary };
+};
+
+// Hook to get deliverables grouped by category
+export const useDeliverablesByCategory = () => {
+  const { deliverables, loading, refetch } = useDeliverables();
+
+  const grouped = useMemo(() => {
+    const groups: Record<DeliverableCategory | 'other', Deliverable[]> = {
+      content: [],
+      ugc: [],
+      paid_ad_rights: [],
+      talent_boosting: [],
+      exclusivity: [],
+      agency_fee: [],
+      other: [],
+    };
+
+    deliverables.forEach(d => {
+      const category = (d.category || 'content') as DeliverableCategory;
+      if (groups[category]) {
+        groups[category].push(d);
+      } else {
+        groups.other.push(d);
+      }
+    });
+
+    // Sort each group by display_order
+    Object.values(groups).forEach(group => {
+      group.sort((a, b) => a.display_order - b.display_order);
+    });
+
+    return groups;
+  }, [deliverables]);
+
+  return { grouped, deliverables, loading, refetch };
+};
+
+// Extended addon rule with joined deliverable data
+export interface AddonRuleWithDeliverables extends DeliverableAddonRule {
+  base_deliverable?: Deliverable;
+  addon_deliverable?: Deliverable;
+}
+
+// Hook to manage addon rules with full CRUD
+export const useAddonRulesManagement = () => {
+  const [rules, setRules] = useState<AddonRuleWithDeliverables[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchRules = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('deliverable_addon_rules')
+        .select(`
+          *,
+          base_deliverable:deliverables!base_deliverable_id (id, name, platform, category, is_addon),
+          addon_deliverable:deliverables!addon_deliverable_id (id, name, platform, category, is_addon, default_multiplier)
+        `)
+        .order('created_at');
+
+      if (error) throw error;
+      setRules(data || []);
+    } catch (err) {
+      console.error('Error fetching addon rules:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRules();
+  }, [fetchRules]);
+
+  const createRule = async (rule: {
+    base_deliverable_id: string;
+    addon_deliverable_id: string;
+    multiplier: number | null;
+  }) => {
+    const { error } = await supabase
+      .from('deliverable_addon_rules')
+      .insert([{ ...rule, is_active: true }]);
+
+    if (error) throw error;
+    await fetchRules();
+  };
+
+  const updateRule = async (id: string, updates: Partial<DeliverableAddonRule>) => {
+    const { error } = await supabase
+      .from('deliverable_addon_rules')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id);
+
+    if (error) throw error;
+    await fetchRules();
+  };
+
+  const deleteRule = async (id: string) => {
+    const { error } = await supabase
+      .from('deliverable_addon_rules')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    await fetchRules();
+  };
+
+  // Get rules grouped by addon category
+  const groupedByAddonCategory = useMemo(() => {
+    const groups: Record<string, AddonRuleWithDeliverables[]> = {
+      paid_ad_rights: [],
+      talent_boosting: [],
+      exclusivity: [],
+    };
+
+    rules.forEach(rule => {
+      const category = rule.addon_deliverable?.category;
+      if (category && groups[category]) {
+        groups[category].push(rule);
+      }
+    });
+
+    return groups;
+  }, [rules]);
+
+  return {
+    rules,
+    groupedByAddonCategory,
+    loading,
+    refetch: fetchRules,
+    createRule,
+    updateRule,
+    deleteRule,
+  };
+};
+
+// Hook to find content missing add-ons
+export const useMissingAddons = (deliverables: Deliverable[], rules: AddonRuleWithDeliverables[]) => {
+  const missing = useMemo(() => {
+    const contentDeliverables = deliverables.filter(d => d.category === 'content' && !d.is_addon);
+    const result: {
+      deliverable: Deliverable;
+      missingAddons: ('paid_ad_rights' | 'talent_boosting')[];
+    }[] = [];
+
+    contentDeliverables.forEach(content => {
+      const missingAddons: ('paid_ad_rights' | 'talent_boosting')[] = [];
+
+      // Check if has Paid Ad Rights rule
+      const hasPaidAdRights = rules.some(
+        r => r.base_deliverable_id === content.id &&
+          r.addon_deliverable?.category === 'paid_ad_rights'
+      );
+      if (!hasPaidAdRights) missingAddons.push('paid_ad_rights');
+
+      // Check if has Talent Boosting rule
+      const hasTalentBoosting = rules.some(
+        r => r.base_deliverable_id === content.id &&
+          r.addon_deliverable?.category === 'talent_boosting'
+      );
+      if (!hasTalentBoosting) missingAddons.push('talent_boosting');
+
+      if (missingAddons.length > 0) {
+        result.push({ deliverable: content, missingAddons });
+      }
+    });
+
+    return result;
+  }, [deliverables, rules]);
+
+  return { missing };
+};
+
+// Function to create content deliverable with matching add-ons
+export const createContentWithAddons = async (params: {
+  name: string;
+  platform: string;
+  category: 'content' | 'ugc';
+  createPaidAdRights: boolean;
+  paidAdRightsMultiplier: number;
+  createTalentBoosting: boolean;
+  talentBoostingMultiplier: number;
+  createExclusivity: boolean;
+  createUgc: boolean;
+}) => {
+  const {
+    name,
+    platform,
+    category,
+    createPaidAdRights,
+    paidAdRightsMultiplier,
+    createTalentBoosting,
+    talentBoostingMultiplier,
+    createExclusivity,
+    createUgc,
+  } = params;
+
+  // Get max display_order
+  const { data: maxOrderData } = await supabase
+    .from('deliverables')
+    .select('display_order')
+    .order('display_order', { ascending: false })
+    .limit(1);
+
+  let displayOrder = (maxOrderData?.[0]?.display_order || 0) + 1;
+
+  // 1. Create main content deliverable
+  const { data: contentData, error: contentError } = await supabase
+    .from('deliverables')
+    .insert([{
+      name,
+      platform,
+      category,
+      is_addon: false,
+      addon_type: null,
+      default_multiplier: null,
+      display_order: displayOrder++,
+      is_active: true,
+    }])
+    .select()
+    .single();
+
+  if (contentError) throw contentError;
+  const contentId = contentData.id;
+
+  // Helper to get short name for add-ons
+  const getShortName = (fullName: string) => {
+    return fullName
+      .replace(/^Instagram\s+/i, '')
+      .replace(/^TikTok\s+/i, '')
+      .replace(/^YouTube\s+/i, '')
+      .replace(/^UGC\s*-?\s*/i, '');
+  };
+
+  // 2. Create Paid Ad Rights add-on if requested
+  if (createPaidAdRights) {
+    const addonName = `Paid Ad Rights - ${getShortName(name)}`;
+
+    const { data: addonData, error: addonError } = await supabase
+      .from('deliverables')
+      .insert([{
+        name: addonName,
+        platform,
+        category: 'paid_ad_rights',
+        is_addon: true,
+        addon_type: 'per_item',
+        default_multiplier: paidAdRightsMultiplier,
+        display_order: displayOrder++,
+        is_active: true,
+      }])
+      .select()
+      .single();
+
+    if (addonError) throw addonError;
+
+    // Create addon rule
+    await supabase.from('deliverable_addon_rules').insert([{
+      base_deliverable_id: contentId,
+      addon_deliverable_id: addonData.id,
+      multiplier: paidAdRightsMultiplier,
+      is_active: true,
+    }]);
+  }
+
+  // 3. Create Talent Boosting add-on if requested
+  if (createTalentBoosting) {
+    const addonName = `Talent Boosting - ${getShortName(name)}`;
+
+    const { data: addonData, error: addonError } = await supabase
+      .from('deliverables')
+      .insert([{
+        name: addonName,
+        platform,
+        category: 'talent_boosting',
+        is_addon: true,
+        addon_type: 'per_item',
+        default_multiplier: talentBoostingMultiplier,
+        display_order: displayOrder++,
+        is_active: true,
+      }])
+      .select()
+      .single();
+
+    if (addonError) throw addonError;
+
+    // Create addon rule
+    await supabase.from('deliverable_addon_rules').insert([{
+      base_deliverable_id: contentId,
+      addon_deliverable_id: addonData.id,
+      multiplier: talentBoostingMultiplier,
+      is_active: true,
+    }]);
+  }
+
+  // 4. Link to Exclusivity if requested
+  if (createExclusivity) {
+    // Find existing Exclusivity deliverable
+    const { data: exclusivityData } = await supabase
+      .from('deliverables')
+      .select('id')
+      .eq('category', 'exclusivity')
+      .limit(1)
+      .single();
+
+    if (exclusivityData) {
+      await supabase.from('deliverable_addon_rules').insert([{
+        base_deliverable_id: contentId,
+        addon_deliverable_id: exclusivityData.id,
+        multiplier: null, // Flat rate from talent
+        is_active: true,
+      }]);
+    }
+  }
+
+  // 5. Create UGC version if requested
+  if (createUgc && category === 'content') {
+    await supabase.from('deliverables').insert([{
+      name: `UGC - ${getShortName(name)}`,
+      platform,
+      category: 'ugc',
+      is_addon: false,
+      addon_type: null,
+      default_multiplier: null,
+      display_order: displayOrder++,
+      is_active: true,
+    }]);
+  }
+
+  return contentData;
+};
+
+// Function to create a new platform with all deliverables
+export const createPlatformWithDeliverables = async (params: {
+  platformName: string;
+  platformSlug: string;
+  contentTypes: string[]; // e.g., ['X Post', 'X Video']
+  createUgc: boolean;
+  createPaidAdRights: boolean;
+  paidAdRightsMultiplier: number;
+  createTalentBoosting: boolean;
+  talentBoostingMultiplier: number;
+  createExclusivity: boolean;
+}) => {
+  const {
+    platformSlug,
+    contentTypes,
+    createUgc,
+    createPaidAdRights,
+    paidAdRightsMultiplier,
+    createTalentBoosting,
+    talentBoostingMultiplier,
+    createExclusivity,
+  } = params;
+
+  // Create each content type with its add-ons
+  for (const contentName of contentTypes) {
+    await createContentWithAddons({
+      name: contentName,
+      platform: platformSlug,
+      category: 'content',
+      createPaidAdRights,
+      paidAdRightsMultiplier,
+      createTalentBoosting,
+      talentBoostingMultiplier,
+      createExclusivity,
+      createUgc,
+    });
+  }
+
+  return { success: true, contentTypesCreated: contentTypes.length };
+};
+
+// Function to create missing add-ons for a content deliverable
+export const createMissingAddonsForContent = async (
+  content: Deliverable,
+  missingAddons: ('paid_ad_rights' | 'talent_boosting')[],
+  paidAdRightsMultiplier: number = 0.50,
+  talentBoostingMultiplier: number = 0.30
+) => {
+  // Get max display_order
+  const { data: maxOrderData } = await supabase
+    .from('deliverables')
+    .select('display_order')
+    .order('display_order', { ascending: false })
+    .limit(1);
+
+  let displayOrder = (maxOrderData?.[0]?.display_order || 0) + 1;
+
+  // Helper to get short name
+  const getShortName = (fullName: string) => {
+    return fullName
+      .replace(/^Instagram\s+/i, '')
+      .replace(/^TikTok\s+/i, '')
+      .replace(/^YouTube\s+/i, '')
+      .replace(/^UGC\s*-?\s*/i, '');
+  };
+
+  for (const addonType of missingAddons) {
+    const isPayAdRights = addonType === 'paid_ad_rights';
+    const addonName = isPayAdRights
+      ? `Paid Ad Rights - ${getShortName(content.name)}`
+      : `Talent Boosting - ${getShortName(content.name)}`;
+    const multiplier = isPayAdRights ? paidAdRightsMultiplier : talentBoostingMultiplier;
+
+    const { data: addonData, error: addonError } = await supabase
+      .from('deliverables')
+      .insert([{
+        name: addonName,
+        platform: content.platform,
+        category: addonType,
+        is_addon: true,
+        addon_type: 'per_item',
+        default_multiplier: multiplier,
+        display_order: displayOrder++,
+        is_active: true,
+      }])
+      .select()
+      .single();
+
+    if (addonError) throw addonError;
+
+    // Create addon rule
+    await supabase.from('deliverable_addon_rules').insert([{
+      base_deliverable_id: content.id,
+      addon_deliverable_id: addonData.id,
+      multiplier: multiplier,
+      is_active: true,
+    }]);
+  }
+};

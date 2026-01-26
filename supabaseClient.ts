@@ -249,3 +249,12 @@ export interface TalentCategory {
   created_at: string;
   category?: Category; // Joined field
 }
+
+// Platform summary for Settings page
+export interface PlatformSummary {
+  platform: string;
+  content_count: number;
+  ugc_count: number;
+  addon_count: number;
+  is_active: boolean;
+}
