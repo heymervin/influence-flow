@@ -8,6 +8,7 @@ import Input from './Input';
 import Select from './Select';
 import Textarea from './Textarea';
 import Button from './Button';
+import RateCardView from './RateCardView';
 
 interface QuoteBuilderProps {
   onBack: () => void;
@@ -177,6 +178,10 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
   const [selectedBulkTalentIds, setSelectedBulkTalentIds] = useState<string[]>([]);
   const [bulkDeliverableId, setBulkDeliverableId] = useState('');
   const [bulkQuantity, setBulkQuantity] = useState(1);
+
+  // Rate Card Mode
+  const [showRateCard, setShowRateCard] = useState(false);
+  const [rateCardTalentId, setRateCardTalentId] = useState('');
 
   // Autosave
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
@@ -370,6 +375,23 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
     setBulkQuantity(1);
     setShowBulkAddForm(false);
   };
+
+  // Handle items from Rate Card
+  const handleRateCardAdd = (items: QuoteLineItem[]) => {
+    if (items.length === 0) return;
+
+    setLineItems(prev => [...prev, ...items]);
+    setToast({
+      message: `Added ${items.length} item${items.length !== 1 ? 's' : ''} from rate card`,
+      type: 'success'
+    });
+
+    // Keep rate card open for adding more items, just reset the talent
+    setRateCardTalentId('');
+  };
+
+  // Get talent for rate card
+  const rateCardTalent = talents.find(t => t.id === rateCardTalentId);
 
   // Update line item quantity
   const updateLineItemQuantity = (id: string, newQty: number) => {
@@ -609,60 +631,86 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
         {/* Client & Campaign Section */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900 mb-6">Client & Campaign</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Client Selection */}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Client */}
             <div>
-              <div className="flex gap-2 mb-2">
-                <button
-                  type="button"
-                  onClick={() => setIsNewClient(false)}
-                  className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${!isNewClient ? 'bg-brand-100 text-brand-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                >
-                  Existing Client
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsNewClient(true)}
-                  className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${isNewClient ? 'bg-brand-100 text-brand-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                >
-                  New Client
-                </button>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium text-gray-700">
+                  Client <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsNewClient(false)}
+                    className={`text-xs px-2 py-1 rounded-md transition-colors ${
+                      !isNewClient ? 'bg-brand-100 text-brand-700' : 'text-gray-500 hover:bg-gray-100'
+                    }`}
+                  >
+                    Existing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsNewClient(true)}
+                    className={`text-xs px-2 py-1 rounded-md transition-colors ${
+                      isNewClient ? 'bg-brand-100 text-brand-700' : 'text-gray-500 hover:bg-gray-100'
+                    }`}
+                  >
+                    New
+                  </button>
+                </div>
               </div>
               {!isNewClient ? (
-                <Select
-                  label="Client"
+                <select
                   value={selectedClientId}
                   onChange={(e) => setSelectedClientId(e.target.value)}
-                  options={clients.map(c => ({ value: c.id, label: c.name }))}
-                  placeholder="Select client..."
-                  error={errors.client}
-                  required
-                />
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent ${
+                    errors.client ? 'border-red-300' : 'border-gray-300'
+                  }`}
+                >
+                  <option value="">Select client...</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
               ) : (
-                <Input
-                  label="Client Name"
+                <input
+                  type="text"
                   value={clientFormData.name}
-                  onChange={(e) => setClientFormData({ ...clientFormData, name: e.target.value })}
-                  error={errors.client_name}
+                  onChange={(e) => setClientFormData({...clientFormData, name: e.target.value})}
                   placeholder="Company name"
-                  required
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent ${
+                    errors.client_name ? 'border-red-300' : 'border-gray-300'
+                  }`}
                 />
+              )}
+              {(errors.client || errors.client_name) && (
+                <p className="mt-1 text-xs text-red-600">{errors.client || errors.client_name}</p>
               )}
             </div>
 
             {/* Campaign Name */}
-            <Input
-              label="Campaign Name"
-              value={campaignName}
-              onChange={(e) => setCampaignName(e.target.value)}
-              error={errors.campaign_name}
-              placeholder="Spring 2024 Launch"
-              required
-            />
-
-            {/* Valid Until with Presets */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Valid Until</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Campaign Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={campaignName}
+                onChange={(e) => setCampaignName(e.target.value)}
+                placeholder="Spring 2024 Launch"
+                className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent ${
+                  errors.campaign_name ? 'border-red-300' : 'border-gray-300'
+                }`}
+              />
+              {errors.campaign_name && (
+                <p className="mt-1 text-xs text-red-600">{errors.campaign_name}</p>
+              )}
+            </div>
+
+            {/* Valid Until */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Valid Until</label>
               <div className="flex gap-2">
                 <select
                   value=""
@@ -674,21 +722,20 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
                       setValidUntil(date.toISOString().split('T')[0]);
                     }
                   }}
-                  className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                  className="w-24 px-2 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500"
                 >
-                  <option value="">Quick set...</option>
+                  <option value="">Quick...</option>
                   <option value="7">7 days</option>
                   <option value="14">14 days</option>
                   <option value="30">30 days</option>
                   <option value="60">60 days</option>
-                  <option value="90">90 days</option>
                 </select>
                 <input
                   type="date"
                   value={validUntil}
                   onChange={(e) => setValidUntil(e.target.value)}
                   min={today}
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500"
                 />
               </div>
             </div>
@@ -702,8 +749,11 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
               <h2 className="text-lg font-semibold text-gray-900">Line Items</h2>
               <p className="text-sm text-gray-500 mt-0.5">Add talents and deliverables to your quote</p>
             </div>
-            {!showAddForm && !showBulkAddForm && (
+            {!showAddForm && !showBulkAddForm && !showRateCard && (
               <div className="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setShowRateCard(true)}>
+                  Rate Card
+                </Button>
                 <Button variant="secondary" size="sm" onClick={() => setShowBulkAddForm(true)}>
                   Bulk Add
                 </Button>
@@ -713,6 +763,55 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
               </div>
             )}
           </div>
+
+          {/* Rate Card Mode */}
+          {showRateCard && (
+            <div className="m-6">
+              {!rateCardTalentId ? (
+                <div className="bg-gradient-to-br from-brand-50 to-purple-50 rounded-xl border-2 border-dashed border-brand-300 p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-brand-600" />
+                      Rate Card - Select Talent
+                    </h3>
+                    <button
+                      onClick={() => setShowRateCard(false)}
+                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white rounded-lg transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Select a talent to view their rate card and quickly add deliverables.
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-64 overflow-y-auto">
+                    {talents.map(talent => (
+                      <button
+                        key={talent.id}
+                        onClick={() => setRateCardTalentId(talent.id)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-left bg-white border border-gray-200 hover:border-brand-300 hover:bg-brand-50 transition-colors"
+                      >
+                        <img
+                          src={talent.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(talent.name)}`}
+                          alt={talent.name}
+                          className="w-8 h-8 rounded-full object-cover object-top"
+                        />
+                        <span className="text-sm font-medium text-gray-700 truncate">{talent.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <RateCardView
+                  talentId={rateCardTalentId}
+                  talentName={rateCardTalent?.name || ''}
+                  talentAvatar={rateCardTalent?.avatar_url}
+                  onAddToQuote={handleRateCardAdd}
+                  onClear={() => setRateCardTalentId('')}
+                />
+              )}
+            </div>
+          )}
 
           {/* Add Item Form - Elevated Card */}
           {showAddForm && (

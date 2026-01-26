@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from './supabaseClient';
-import type { Talent, Quote, Deal, Client, Deliverable, TalentRate, TalentSocialAccount, SocialPlatform, Platform, Category, TalentCategory } from './supabaseClient';
+import type { Talent, Quote, Deal, Client, Deliverable, TalentRate, TalentSocialAccount, SocialPlatform, Platform, Category, TalentCategory, DeliverableAddonRule, DeliverableCategory } from './supabaseClient';
 
 export const useTalents = () => {
   const [talents, setTalents] = useState<Talent[]>([]);
@@ -510,23 +510,33 @@ export const useClients = () => {
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
+    console.log('[useClients] Hook initialized, calling fetchClients...');
     fetchClients();
   }, []);
 
   const fetchClients = async () => {
     try {
+      console.log('[useClients] fetchClients started, setting loading to true');
       setLoading(true);
+
+      console.log('[useClients] Calling Supabase API...');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
         .order('name', { ascending: true });
 
+      console.log('[useClients] API response received');
+      console.log('[useClients] Data:', data);
+      console.log('[useClients] Error:', error);
+      console.log('[useClients] Data count:', data?.length || 0);
+
       if (error) throw error;
       setClients(data || []);
     } catch (err) {
       setError(err as Error);
-      console.error('Error fetching clients:', err);
+      console.error('[useClients] Error fetching clients:', err);
     } finally {
+      console.log('[useClients] fetchClients complete, setting loading to false');
       setLoading(false);
     }
   };
@@ -1185,4 +1195,150 @@ export const useTermsTemplates = () => {
   };
 
   return { templates, loading, error, refetch: fetchTemplates, getDefaultTemplate };
+};
+
+// Talent Deliverable interface for rate card view
+export interface TalentDeliverable {
+  id: string;
+  name: string;
+  platform: string;
+  category: DeliverableCategory;
+  display_order: number;
+  is_addon: boolean;
+  addon_type: string | null;
+  rate: number; // in cents
+}
+
+// Hook to fetch only deliverables where a talent has rates set
+export const useTalentDeliverables = (talentId: string | null) => {
+  const [deliverables, setDeliverables] = useState<TalentDeliverable[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!talentId) {
+      setDeliverables([]);
+      return;
+    }
+
+    const fetchTalentDeliverables = async () => {
+      try {
+        setLoading(true);
+
+        const { data, error } = await supabase
+          .from('talent_rates')
+          .select(`
+            base_rate,
+            deliverable:deliverables!inner (
+              id,
+              name,
+              platform,
+              category,
+              display_order,
+              is_addon,
+              addon_type
+            )
+          `)
+          .eq('talent_id', talentId)
+          .gt('base_rate', 0);
+
+        if (error) throw error;
+
+        const formatted: TalentDeliverable[] = (data || [])
+          .filter((item: any) => item.deliverable) // Filter out any null deliverables
+          .map((item: any) => ({
+            id: item.deliverable.id,
+            name: item.deliverable.name,
+            platform: item.deliverable.platform,
+            category: item.deliverable.category,
+            display_order: item.deliverable.display_order,
+            is_addon: item.deliverable.is_addon || false,
+            addon_type: item.deliverable.addon_type,
+            rate: item.base_rate,
+          }))
+          .sort((a: TalentDeliverable, b: TalentDeliverable) => a.display_order - b.display_order);
+
+        setDeliverables(formatted);
+      } catch (err) {
+        setError(err as Error);
+        console.error('Error fetching talent deliverables:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTalentDeliverables();
+  }, [talentId]);
+
+  // Separate main content from add-ons
+  const mainDeliverables = useMemo(() =>
+    deliverables.filter(d => !d.is_addon),
+    [deliverables]
+  );
+
+  const addonDeliverables = useMemo(() =>
+    deliverables.filter(d => d.is_addon),
+    [deliverables]
+  );
+
+  // Group by category
+  const groupedByCategory = useMemo(() => {
+    return deliverables.reduce((acc, d) => {
+      const cat = d.category || 'content';
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(d);
+      return acc;
+    }, {} as Record<string, TalentDeliverable[]>);
+  }, [deliverables]);
+
+  return {
+    deliverables,
+    mainDeliverables,
+    addonDeliverables,
+    groupedByCategory,
+    loading,
+    error
+  };
+};
+
+// Hook to fetch add-on rules for selected base deliverables
+export const useAddonRules = (baseDeliverableIds: string[]) => {
+  const [rules, setRules] = useState<DeliverableAddonRule[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (baseDeliverableIds.length === 0) {
+      setRules([]);
+      return;
+    }
+
+    const fetchRules = async () => {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from('deliverable_addon_rules')
+        .select(`
+          *,
+          addon:deliverables!addon_deliverable_id (
+            id, name, category, platform
+          )
+        `)
+        .in('base_deliverable_id', baseDeliverableIds)
+        .eq('is_active', true);
+
+      if (!error && data) {
+        setRules(data);
+      }
+
+      setLoading(false);
+    };
+
+    fetchRules();
+  }, [baseDeliverableIds.join(',')]);
+
+  const getAddonsForBase = (baseId: string) => {
+    return rules.filter(r => r.base_deliverable_id === baseId);
+  };
+
+  return { rules, getAddonsForBase, loading };
 };

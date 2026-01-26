@@ -150,8 +150,25 @@ export interface Deliverable {
   category: DeliverableCategory;
   display_order: number;
   is_active: boolean;
+  is_addon: boolean;
+  addon_type: 'per_item' | 'per_talent' | null;
+  default_multiplier: number | null;
   created_at: string;
   updated_at: string;
+}
+
+// Rules for linking add-on deliverables to base deliverables
+export interface DeliverableAddonRule {
+  id: string;
+  addon_deliverable_id: string;
+  base_deliverable_id: string;
+  multiplier: number | null;
+  fixed_rate: number | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  addon?: Deliverable;
 }
 
 // Talent rates for each deliverable
