@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, Plus, Trash2, Search, X, ChevronDown, Instagram } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { supabase, Client, Talent, Deliverable } from './supabaseClient';
-import { useTalents, useDeliverables, useAllTalentRates, useAllTalentSocialAccounts } from './hooks';
+import { useTalents, useDeliverables, useAllTalentRates, useAllTalentSocialAccounts, useCategories, useAllTalentCategories } from './hooks';
 import { formatFollowerCount } from './utils';
 import Input from './Input';
 import Select from './Select';
@@ -61,6 +61,8 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
   const { deliverables, loading: deliverablesLoading } = useDeliverables();
   const { getRate, loading: ratesLoading } = useAllTalentRates();
   const { getAccountsForTalent } = useAllTalentSocialAccounts();
+  const { activeCategories, getCategoryById } = useCategories();
+  const { getCategoriesForTalent } = useAllTalentCategories();
 
   // Client & Campaign
   const [clients, setClients] = useState<Client[]>([]);
@@ -140,16 +142,12 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
       const matchesSearch = !talentSearch ||
         talent.name.toLowerCase().includes(talentSearch.toLowerCase()) ||
         handlesMatch;
-      const matchesFilter = !talentFilter || talent.category === talentFilter;
+      // Use category filter with new junction table
+      const talentCategoryIds = getCategoriesForTalent(talent.id);
+      const matchesFilter = !talentFilter || talentCategoryIds.includes(talentFilter);
       return matchesSearch && matchesFilter;
     });
-  }, [talents, talentSearch, talentFilter, getAccountsForTalent]);
-
-  // Get unique talent categories for filter
-  const talentCategories = useMemo(() => {
-    const categories = new Set(talents.map(t => t.category).filter(Boolean));
-    return Array.from(categories).sort();
-  }, [talents]);
+  }, [talents, talentSearch, talentFilter, getAccountsForTalent, getCategoriesForTalent]);
 
   // Group deliverables by category
   const deliverablesByCategory = useMemo(() => {
@@ -553,8 +551,8 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
                       className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500"
                     >
                       <option value="">All Categories</option>
-                      {talentCategories.map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
+                      {activeCategories.map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
                       ))}
                     </select>
                   </div>

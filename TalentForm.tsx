@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, Camera, Trash2, Plus, Instagram, Globe } from 'lucide-react';
 import { Talent, supabase, Platform } from './supabaseClient';
 import { useAuth } from './AuthContext';
-import { useTalentSocialAccounts, usePlatforms } from './hooks';
+import { useTalentSocialAccounts, usePlatforms, useCategories, useTalentCategories } from './hooks';
 import Modal from './Modal';
 import Input from './Input';
 import Select from './Select';
@@ -49,17 +49,6 @@ interface TalentFormProps {
   onSuccess?: () => void;
 }
 
-const CATEGORY_OPTIONS = [
-  { value: 'Fashion', label: 'Fashion' },
-  { value: 'Beauty', label: 'Beauty' },
-  { value: 'Lifestyle', label: 'Lifestyle' },
-  { value: 'Fitness', label: 'Fitness' },
-  { value: 'Tech', label: 'Tech' },
-  { value: 'Food', label: 'Food' },
-  { value: 'Travel', label: 'Travel' },
-  { value: 'Other', label: 'Other' },
-];
-
 const STATUS_OPTIONS = [
   { value: 'active', label: 'Active' },
   { value: 'on-hold', label: 'On Hold' },
@@ -80,16 +69,20 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
   const isEditMode = !!talent;
   const { accounts: existingSocialAccounts, refetch: refetchSocialAccounts } = useTalentSocialAccounts(talent?.id || null);
   const { activePlatforms, getPlatformBySlug } = usePlatforms();
+  const { activeCategories } = useCategories();
+  const { categoryIds: existingCategoryIds, updateTalentCategories } = useTalentCategories(talent?.id || null);
 
   // Form state
   const [formData, setFormData] = useState({
     name: '',
-    category: '',
     status: 'active' as 'active' | 'on-hold' | 'inactive',
     avatar_url: '',
     bio: '',
     notes: '',
   });
+
+  // Selected categories state
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
 
   // Social accounts state
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountInput[]>([]);
@@ -108,7 +101,6 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
     if (talent) {
       setFormData({
         name: talent.name || '',
-        category: talent.category || '',
         status: talent.status || 'active',
         avatar_url: talent.avatar_url || '',
         bio: talent.bio || '',
@@ -119,7 +111,6 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
       // Reset form for new talent
       setFormData({
         name: '',
-        category: '',
         status: 'active',
         avatar_url: '',
         bio: '',
@@ -127,11 +118,19 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
       });
       setPreviewUrl(null);
       setSocialAccounts([]);
+      setSelectedCategoryIds([]);
     }
     setErrors({});
     setSubmitError(null);
     setShowAddPlatform(false);
   }, [talent, isOpen]);
+
+  // Load existing categories when editing
+  useEffect(() => {
+    if (existingCategoryIds.length > 0) {
+      setSelectedCategoryIds(existingCategoryIds);
+    }
+  }, [existingCategoryIds]);
 
   // Load existing social accounts when editing
   useEffect(() => {
@@ -261,6 +260,20 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
     }
   };
 
+  const handleCategoryToggle = (categoryId: string) => {
+    setSelectedCategoryIds(prev => {
+      if (prev.includes(categoryId)) {
+        return prev.filter(id => id !== categoryId);
+      } else {
+        return [...prev, categoryId];
+      }
+    });
+    // Clear category error when selecting
+    if (errors.categories) {
+      setErrors(prev => ({ ...prev, categories: '' }));
+    }
+  };
+
   const validate = () => {
     const newErrors: Record<string, string> = {};
 
@@ -268,8 +281,8 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
       newErrors.name = 'Name is required';
     }
 
-    if (!formData.category) {
-      newErrors.category = 'Category is required';
+    if (selectedCategoryIds.length === 0) {
+      newErrors.categories = 'At least one category is required';
     }
 
     // Validate social accounts
@@ -306,7 +319,7 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
       const talentData = {
         user_id: user.id,
         name: formData.name.trim(),
-        category: formData.category,
+        category: activeCategories.find(c => c.id === selectedCategoryIds[0])?.name || '', // Keep legacy field for backward compatibility
         status: formData.status,
         avatar_url: formData.avatar_url.trim() || null,
         bio: formData.bio.trim() || null,
@@ -325,6 +338,9 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
 
         if (error) throw error;
         talentId = talent.id;
+
+        // Update categories
+        await updateTalentCategories(selectedCategoryIds);
       } else {
         // Create new talent
         const { data, error } = await supabase
@@ -335,6 +351,20 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
 
         if (error) throw error;
         talentId = data.id;
+
+        // Insert categories for new talent
+        if (selectedCategoryIds.length > 0) {
+          const categoryInserts = selectedCategoryIds.map(categoryId => ({
+            talent_id: talentId,
+            category_id: categoryId,
+          }));
+
+          const { error: categoryError } = await supabase
+            .from('talent_categories')
+            .insert(categoryInserts);
+
+          if (categoryError) throw categoryError;
+        }
       }
 
       // Handle social accounts
@@ -429,27 +459,45 @@ const TalentForm = ({ isOpen, onClose, talent, onSuccess }: TalentFormProps) => 
           placeholder="e.g. Sarah Johnson"
         />
 
-        {/* Category and Status */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Select
-            label="Category"
-            name="category"
-            value={formData.category}
-            onChange={handleChange}
-            error={errors.category}
-            options={CATEGORY_OPTIONS}
-            placeholder="Select a category"
-            required
-          />
-          <Select
-            label="Status"
-            name="status"
-            value={formData.status}
-            onChange={handleChange}
-            options={STATUS_OPTIONS}
-            required
-          />
+        {/* Categories */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Categories <span className="text-red-500">*</span>
+          </label>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            {activeCategories.map(category => (
+              <label
+                key={category.id}
+                className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
+                  selectedCategoryIds.includes(category.id)
+                    ? 'bg-brand-50 border-brand-300 text-brand-700'
+                    : 'bg-white border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedCategoryIds.includes(category.id)}
+                  onChange={() => handleCategoryToggle(category.id)}
+                  className="w-4 h-4 text-brand-600 border-gray-300 rounded focus:ring-brand-500"
+                />
+                <span className="text-sm">{category.name}</span>
+              </label>
+            ))}
+          </div>
+          {errors.categories && (
+            <p className="mt-1 text-sm text-red-500">{errors.categories}</p>
+          )}
         </div>
+
+        {/* Status */}
+        <Select
+          label="Status"
+          name="status"
+          value={formData.status}
+          onChange={handleChange}
+          options={STATUS_OPTIONS}
+          required
+        />
 
         {/* Social Accounts */}
         <div>

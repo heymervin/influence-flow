@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Building2, Mail, Phone, FileText, Package, Plus, Trash2, Edit2, X, Check, Globe, Instagram } from 'lucide-react';
 import { useAuth } from './AuthContext';
-import { supabase, Deliverable, Platform } from './supabaseClient';
-import { useDeliverables, usePlatforms } from './hooks';
+import { supabase, Deliverable, Platform, Category } from './supabaseClient';
+import { useDeliverables, usePlatforms, useCategories } from './hooks';
+import { Tag } from 'lucide-react';
 import Input from './Input';
 import Textarea from './Textarea';
 import Button from './Button';
@@ -96,6 +97,7 @@ const Settings = () => {
   const { profile } = useAuth();
   const { deliverables, refetch: refetchDeliverables } = useDeliverables();
   const { platforms, refetch: refetchPlatforms, createPlatform, updatePlatform, deletePlatform } = usePlatforms();
+  const { categories, refetch: refetchCategories, createCategory, updateCategory, deleteCategory } = useCategories();
 
   const isAdmin = profile?.role === 'admin';
 
@@ -133,6 +135,19 @@ const Settings = () => {
   const [editingPlatformId, setEditingPlatformId] = useState<string | null>(null);
   const [editPlatformData, setEditPlatformData] = useState<Partial<Platform>>({});
   const [deletingPlatformId, setDeletingPlatformId] = useState<string | null>(null);
+
+  // Category management state
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategoryData, setNewCategoryData] = useState({
+    name: '',
+    slug: '',
+    color: 'gray',
+  });
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [categoryAddError, setCategoryAddError] = useState<string | null>(null);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editCategoryData, setEditCategoryData] = useState<Partial<Category>>({});
+  const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -444,6 +459,112 @@ const Settings = () => {
       await updatePlatform(platform.id, { is_active: !platform.is_active });
     } catch (error) {
       console.error('Error toggling platform:', error);
+    }
+  };
+
+  // Category management functions
+  const handleAddCategory = async () => {
+    const trimmedName = newCategoryData.name.trim();
+    const trimmedSlug = newCategoryData.slug.trim().toLowerCase().replace(/\s+/g, '-');
+
+    if (!trimmedName) {
+      setCategoryAddError('Please enter a category name');
+      return;
+    }
+    if (!trimmedSlug) {
+      setCategoryAddError('Please enter a slug');
+      return;
+    }
+
+    // Check for duplicates
+    const isDuplicate = categories.some(
+      (c) => c.name.toLowerCase() === trimmedName.toLowerCase() || c.slug === trimmedSlug
+    );
+    if (isDuplicate) {
+      setCategoryAddError('A category with this name or slug already exists');
+      return;
+    }
+
+    setAddingCategory(true);
+    setCategoryAddError(null);
+
+    try {
+      const maxOrder = categories.reduce((max, c) => Math.max(max, c.display_order), 0);
+
+      await createCategory({
+        name: trimmedName,
+        slug: trimmedSlug,
+        color: newCategoryData.color,
+        is_active: true,
+        display_order: maxOrder + 1,
+      });
+
+      setNewCategoryData({
+        name: '',
+        slug: '',
+        color: 'gray',
+      });
+      setShowAddCategory(false);
+    } catch (error: any) {
+      console.error('Error adding category:', error);
+      setCategoryAddError(error.message || 'Failed to add category');
+    } finally {
+      setAddingCategory(false);
+    }
+  };
+
+  const handleStartEditCategory = (category: Category) => {
+    setEditingCategoryId(category.id);
+    setEditCategoryData({
+      name: category.name,
+      slug: category.slug,
+      color: category.color,
+      is_active: category.is_active,
+    });
+  };
+
+  const handleSaveCategoryEdit = async (categoryId: string) => {
+    if (!editCategoryData.name?.trim()) return;
+
+    try {
+      await updateCategory(categoryId, {
+        name: editCategoryData.name.trim(),
+        color: editCategoryData.color,
+        is_active: editCategoryData.is_active,
+      });
+      setEditingCategoryId(null);
+    } catch (error) {
+      console.error('Error updating category:', error);
+    }
+  };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    try {
+      // Check if this category has any talents attached
+      const { count } = await supabase
+        .from('talent_categories')
+        .select('*', { count: 'exact', head: true })
+        .eq('category_id', categoryId);
+
+      if (count && count > 0) {
+        if (!confirm(`This category has ${count} talent(s) attached. Deleting it will remove the category from those talents. Continue?`)) {
+          setDeletingCategoryId(null);
+          return;
+        }
+      }
+
+      await deleteCategory(categoryId);
+      setDeletingCategoryId(null);
+    } catch (error) {
+      console.error('Error deleting category:', error);
+    }
+  };
+
+  const handleToggleCategoryActive = async (category: Category) => {
+    try {
+      await updateCategory(category.id, { is_active: !category.is_active });
+    } catch (error) {
+      console.error('Error toggling category:', error);
     }
   };
 
@@ -876,6 +997,223 @@ const Settings = () => {
               <Globe className="w-12 h-12 mx-auto mb-3 text-gray-300" />
               <p>No platforms configured yet.</p>
               <p className="text-sm">Add your first platform above.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Talent Categories Card */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center">
+            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
+              <Tag className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Talent Categories</h2>
+              <p className="text-sm text-gray-500">Manage categories for organizing talents</p>
+            </div>
+          </div>
+          {!showAddCategory && isAdmin && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Plus}
+              onClick={() => setShowAddCategory(true)}
+            >
+              Add Category
+            </Button>
+          )}
+        </div>
+
+        {!isAdmin && (
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p className="text-sm text-yellow-800">Only administrators can modify categories.</p>
+          </div>
+        )}
+
+        {/* Add New Category Form */}
+        {showAddCategory && isAdmin && (
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <h4 className="text-sm font-medium text-gray-900 mb-3">Add New Category</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+              <Input
+                label="Category Name"
+                placeholder="e.g., Automotive"
+                value={newCategoryData.name}
+                onChange={(e) => {
+                  setNewCategoryData(prev => ({
+                    ...prev,
+                    name: e.target.value,
+                    slug: e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+                  }));
+                  setCategoryAddError(null);
+                }}
+              />
+              <Input
+                label="Slug (ID)"
+                placeholder="e.g., automotive"
+                value={newCategoryData.slug}
+                onChange={(e) => {
+                  setNewCategoryData(prev => ({ ...prev, slug: e.target.value }));
+                  setCategoryAddError(null);
+                }}
+                helperText="Lowercase, no spaces"
+              />
+              <Select
+                label="Color"
+                value={newCategoryData.color}
+                onChange={(e) => setNewCategoryData(prev => ({ ...prev, color: e.target.value }))}
+                options={COLOR_OPTIONS}
+              />
+            </div>
+            {categoryAddError && (
+              <p className="text-sm text-red-600 mb-3">{categoryAddError}</p>
+            )}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                icon={Check}
+                onClick={handleAddCategory}
+                disabled={addingCategory}
+              >
+                {addingCategory ? 'Adding...' : 'Add Category'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={X}
+                onClick={() => {
+                  setShowAddCategory(false);
+                  setNewCategoryData({
+                    name: '',
+                    slug: '',
+                    color: 'gray',
+                  });
+                  setCategoryAddError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Categories List */}
+        <div className="space-y-2">
+          {categories.map((category) => (
+            <div
+              key={category.id}
+              className={`flex items-center justify-between p-3 rounded-lg transition-colors ${
+                category.is_active ? 'bg-gray-50 hover:bg-gray-100' : 'bg-gray-100 opacity-60'
+              }`}
+            >
+              {editingCategoryId === category.id && isAdmin ? (
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2 mr-2">
+                  <input
+                    type="text"
+                    value={editCategoryData.name || ''}
+                    onChange={(e) => setEditCategoryData(prev => ({ ...prev, name: e.target.value }))}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                    placeholder="Name"
+                  />
+                  <select
+                    value={editCategoryData.color || 'gray'}
+                    onChange={(e) => setEditCategoryData(prev => ({ ...prev, color: e.target.value }))}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500"
+                  >
+                    {COLOR_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center bg-${category.color}-100`}>
+                    <Tag className={`w-4 h-4 text-${category.color}-600`} />
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-900">{category.name}</span>
+                    <span className="text-xs text-gray-500 ml-2">({category.slug})</span>
+                    {!category.is_active && (
+                      <span className="text-xs text-orange-600 ml-2">(Disabled)</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {isAdmin && (
+                <div className="flex items-center gap-1">
+                  {editingCategoryId === category.id ? (
+                    <>
+                      <button
+                        onClick={() => handleSaveCategoryEdit(category.id)}
+                        className="p-1.5 text-green-600 hover:bg-green-100 rounded"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setEditingCategoryId(null)}
+                        className="p-1.5 text-gray-500 hover:bg-gray-200 rounded"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => handleToggleCategoryActive(category)}
+                        className={`px-2 py-1 text-xs rounded ${
+                          category.is_active
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                        }`}
+                      >
+                        {category.is_active ? 'Active' : 'Disabled'}
+                      </button>
+                      <button
+                        onClick={() => handleStartEditCategory(category)}
+                        className="p-1.5 text-gray-500 hover:text-brand-600 hover:bg-brand-50 rounded"
+                        title="Edit"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      {deletingCategoryId === category.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleDeleteCategory(category.id)}
+                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => setDeletingCategoryId(null)}
+                            className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeletingCategoryId(category.id)}
+                          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {categories.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              <Tag className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+              <p>No categories configured yet.</p>
+              <p className="text-sm">Add your first category above.</p>
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Search, Filter, Instagram, ChevronRight, RefreshCw, Globe } from 'lucide-react';
-import { useTalents, useAllTalentSocialAccounts } from './hooks';
+import { useTalents, useAllTalentSocialAccounts, useCategories, useAllTalentCategories } from './hooks';
 import TalentDetailModal from './TalentDetailModal';
 import { Talent, supabase, SocialPlatform } from './supabaseClient';
 import { scrapeInstagramStats, scrapeMultipleInstagramStats } from './apifyService';
@@ -59,12 +59,30 @@ const getPlatformIconColor = (platform: SocialPlatform): string => {
 const TalentRoster = () => {
   const { talents, loading, error, refetch } = useTalents();
   const { getAccountsForTalent } = useAllTalentSocialAccounts();
+  const { activeCategories, getCategoryById } = useCategories();
+  const { getCategoriesForTalent } = useAllTalentCategories();
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [talentToEdit, setTalentToEdit] = useState<Talent | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
+
+  // Filter talents based on search and category
+  const filteredTalents = talents.filter(talent => {
+    // Search filter
+    const matchesSearch = !searchQuery ||
+      talent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      getAccountsForTalent(talent.id).some(a => a.handle.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    // Category filter
+    const talentCategoryIds = getCategoriesForTalent(talent.id);
+    const matchesCategory = !categoryFilter || talentCategoryIds.includes(categoryFilter);
+
+    return matchesSearch && matchesCategory;
+  });
 
   useEffect(() => {
     console.log('[TalentRoster] Component mounted');
@@ -247,17 +265,27 @@ const TalentRoster = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
           <input
             type="text"
-            placeholder="Search talents by name or category..."
+            placeholder="Search talents by name or handle..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
           />
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
-          <Button variant="secondary" icon={Filter} size="md" className="flex-1 sm:flex-none">Filters</Button>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="flex-1 sm:flex-none px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">All Categories</option>
+            {activeCategories.map(cat => (
+              <option key={cat.id} value={cat.id}>{cat.name}</option>
+            ))}
+          </select>
           <div className="hidden sm:block h-full w-px bg-gray-200 mx-2"></div>
           <select className="flex-1 sm:flex-none px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white outline-none focus:ring-2 focus:ring-brand-500">
             <option>Sort by: Name</option>
             <option>Sort by: Followers</option>
-            <option>Sort by: Engagement</option>
           </select>
         </div>
       </div>
@@ -267,62 +295,89 @@ const TalentRoster = () => {
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
           <p className="mt-4 text-gray-500">Loading talents...</p>
         </div>
-      ) : talents.length === 0 ? (
+      ) : filteredTalents.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
-          <p className="text-gray-500 mb-4">No talents in your roster yet.</p>
-          <Button icon={Plus} onClick={handleAddNew}>Add Your First Talent</Button>
+          <p className="text-gray-500 mb-4">
+            {talents.length === 0 ? 'No talents in your roster yet.' : 'No talents match your search.'}
+          </p>
+          {talents.length === 0 && (
+            <Button icon={Plus} onClick={handleAddNew}>Add Your First Talent</Button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {talents.map((talent) => (
-            <div
-              key={talent.id}
-              onClick={() => handleTalentClick(talent)}
-              className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden cursor-pointer"
-            >
-              <div className="relative aspect-square bg-gray-100 overflow-hidden">
-                <img
-                  src={talent.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(talent.name)}`}
-                  alt={talent.name}
-                  className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute top-3 right-3">
-                  <Badge variant={talent.status === 'active' ? 'success' : 'warning'} className="capitalize">{talent.status.replace('-', ' ')}</Badge>
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
-                  <p className="text-white text-sm font-medium">View detailed analytics</p>
-                </div>
-              </div>
-              <div className="p-4">
-                <div className="mb-3">
-                  <h3 className="text-base font-bold text-gray-900 group-hover:text-brand-600 transition-colors">{talent.name}</h3>
-                  <p className="text-sm text-gray-500">{talent.category}</p>
-                </div>
+          {filteredTalents.map((talent) => {
+            const talentCategoryIds = getCategoriesForTalent(talent.id);
+            const talentCategories = talentCategoryIds
+              .map(id => getCategoryById(id))
+              .filter(Boolean);
 
-                <div className="mb-3 py-2 border-y border-gray-100 space-y-1">
-                  <p className="text-xs text-gray-500 mb-1">Followers</p>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    {getAccountsForTalent(talent.id).length > 0 ? (
-                      getAccountsForTalent(talent.id).slice(0, 3).map((account) => (
-                        <p key={account.id} className={`text-sm font-semibold text-gray-900 flex items-center ${getPlatformIconColor(account.platform)}`}>
-                          {getPlatformIcon(account.platform, 'w-3 h-3 mr-1')}
-                          {formatFollowerCount(account.follower_count)}
-                        </p>
-                      ))
-                    ) : (
-                      <p className="text-sm text-gray-400">No accounts</p>
-                    )}
+            return (
+              <div
+                key={talent.id}
+                onClick={() => handleTalentClick(talent)}
+                className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden cursor-pointer"
+              >
+                <div className="relative aspect-square bg-gray-100 overflow-hidden">
+                  <img
+                    src={talent.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(talent.name)}`}
+                    alt={talent.name}
+                    className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
+                  />
+                  <div className="absolute top-3 right-3">
+                    <Badge variant={talent.status === 'active' ? 'success' : 'warning'} className="capitalize">{talent.status.replace('-', ' ')}</Badge>
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
+                    <p className="text-white text-sm font-medium">View detailed analytics</p>
                   </div>
                 </div>
+                <div className="p-4">
+                  <div className="mb-2">
+                    <h3 className="text-base font-bold text-gray-900 group-hover:text-brand-600 transition-colors">{talent.name}</h3>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {talentCategories.length > 0 ? (
+                        talentCategories.slice(0, 3).map(cat => (
+                          <span
+                            key={cat!.id}
+                            className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-${cat!.color}-100 text-${cat!.color}-700`}
+                          >
+                            {cat!.name}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-gray-400">No categories</span>
+                      )}
+                      {talentCategories.length > 3 && (
+                        <span className="text-xs text-gray-500">+{talentCategories.length - 3}</span>
+                      )}
+                    </div>
+                  </div>
 
-                <div className="flex justify-end items-center">
-                  <span className="text-brand-600 font-medium text-sm flex items-center group-hover:translate-x-1 transition-transform">
-                    View Profile <ChevronRight className="w-4 h-4 ml-1" />
-                  </span>
+                  <div className="mb-3 py-2 border-y border-gray-100 space-y-1">
+                    <p className="text-xs text-gray-500 mb-1">Followers</p>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {getAccountsForTalent(talent.id).length > 0 ? (
+                        getAccountsForTalent(talent.id).slice(0, 3).map((account) => (
+                          <p key={account.id} className={`text-sm font-semibold text-gray-900 flex items-center ${getPlatformIconColor(account.platform)}`}>
+                            {getPlatformIcon(account.platform, 'w-3 h-3 mr-1')}
+                            {formatFollowerCount(account.follower_count)}
+                          </p>
+                        ))
+                      ) : (
+                        <p className="text-sm text-gray-400">No accounts</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end items-center">
+                    <span className="text-brand-600 font-medium text-sm flex items-center group-hover:translate-x-1 transition-transform">
+                      View Profile <ChevronRight className="w-4 h-4 ml-1" />
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {/* Add New Placeholder Card */}
           <button

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from './supabaseClient';
-import type { Talent, Quote, Deal, Client, Deliverable, TalentRate, TalentSocialAccount, SocialPlatform, Platform } from './supabaseClient';
+import type { Talent, Quote, Deal, Client, Deliverable, TalentRate, TalentSocialAccount, SocialPlatform, Platform, Category, TalentCategory } from './supabaseClient';
 
 export const useTalents = () => {
   const [talents, setTalents] = useState<Talent[]>([]);
@@ -905,5 +905,237 @@ export const usePlatforms = () => {
     createPlatform,
     updatePlatform,
     deletePlatform
+  };
+};
+
+// Categories hook - fetch all categories from database
+export const useCategories = () => {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('display_order', { ascending: true });
+
+      if (error) throw error;
+      setCategories(data || []);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching categories:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
+
+  // Get active categories only
+  const activeCategories = categories.filter(c => c.is_active);
+
+  // Get category by slug
+  const getCategoryBySlug = (slug: string): Category | undefined => {
+    return categories.find(c => c.slug === slug);
+  };
+
+  // Get category by ID
+  const getCategoryById = (id: string): Category | undefined => {
+    return categories.find(c => c.id === id);
+  };
+
+  // Create a new category (admin only)
+  const createCategory = async (category: Omit<Category, 'id' | 'created_at' | 'updated_at'>) => {
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .insert([category])
+        .select()
+        .single();
+
+      if (error) throw error;
+      setCategories(prev => [...prev, data].sort((a, b) => a.display_order - b.display_order));
+      return data;
+    } catch (err) {
+      console.error('Error creating category:', err);
+      throw err;
+    }
+  };
+
+  // Update a category (admin only)
+  const updateCategory = async (id: string, updates: Partial<Category>) => {
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      setCategories(prev => prev.map(c => c.id === id ? data : c).sort((a, b) => a.display_order - b.display_order));
+      return data;
+    } catch (err) {
+      console.error('Error updating category:', err);
+      throw err;
+    }
+  };
+
+  // Delete a category (admin only)
+  const deleteCategory = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      setCategories(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      console.error('Error deleting category:', err);
+      throw err;
+    }
+  };
+
+  return {
+    categories,
+    activeCategories,
+    loading,
+    error,
+    refetch: fetchCategories,
+    getCategoryBySlug,
+    getCategoryById,
+    createCategory,
+    updateCategory,
+    deleteCategory
+  };
+};
+
+// Talent categories hook - fetch categories for a specific talent
+export const useTalentCategories = (talentId: string | null) => {
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchTalentCategories = useCallback(async () => {
+    if (!talentId) {
+      setCategoryIds([]);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('talent_categories')
+        .select('category_id')
+        .eq('talent_id', talentId);
+
+      if (error) throw error;
+      setCategoryIds(data?.map(tc => tc.category_id) || []);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching talent categories:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [talentId]);
+
+  useEffect(() => {
+    fetchTalentCategories();
+  }, [fetchTalentCategories]);
+
+  // Update talent categories (replace all)
+  const updateTalentCategories = async (newCategoryIds: string[]) => {
+    if (!talentId) return;
+
+    try {
+      // Delete existing categories
+      await supabase
+        .from('talent_categories')
+        .delete()
+        .eq('talent_id', talentId);
+
+      // Insert new categories
+      if (newCategoryIds.length > 0) {
+        const inserts = newCategoryIds.map(categoryId => ({
+          talent_id: talentId,
+          category_id: categoryId,
+        }));
+
+        const { error } = await supabase
+          .from('talent_categories')
+          .insert(inserts);
+
+        if (error) throw error;
+      }
+
+      setCategoryIds(newCategoryIds);
+    } catch (err) {
+      console.error('Error updating talent categories:', err);
+      throw err;
+    }
+  };
+
+  return {
+    categoryIds,
+    loading,
+    error,
+    refetch: fetchTalentCategories,
+    updateTalentCategories
+  };
+};
+
+// Fetch categories for all talents (for roster display and filtering)
+export const useAllTalentCategories = () => {
+  const [categoriesMap, setCategoriesMap] = useState<Map<string, string[]>>(new Map());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchAllTalentCategories = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('talent_categories')
+        .select('talent_id, category_id');
+
+      if (error) throw error;
+
+      // Group by talent_id
+      const map = new Map<string, string[]>();
+      data?.forEach((tc) => {
+        if (!map.has(tc.talent_id)) {
+          map.set(tc.talent_id, []);
+        }
+        map.get(tc.talent_id)!.push(tc.category_id);
+      });
+
+      setCategoriesMap(map);
+    } catch (err) {
+      setError(err as Error);
+      console.error('Error fetching all talent categories:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAllTalentCategories();
+  }, [fetchAllTalentCategories]);
+
+  const getCategoriesForTalent = (talentId: string): string[] => {
+    return categoriesMap.get(talentId) || [];
+  };
+
+  return {
+    categoriesMap,
+    getCategoriesForTalent,
+    loading,
+    error,
+    refetch: fetchAllTalentCategories
   };
 };

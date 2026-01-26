@@ -211,3 +211,24 @@ export const SOCIAL_PLATFORMS: Record<string, { name: string; color: string; url
   twitter: { name: 'Twitter/X', color: 'sky', urlPrefix: 'https://twitter.com/' },
   facebook: { name: 'Facebook', color: 'indigo', urlPrefix: 'https://facebook.com/' },
 };
+
+// Category entity from database
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  color: string;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Talent category junction
+export interface TalentCategory {
+  id: string;
+  talent_id: string;
+  category_id: string;
+  created_at: string;
+  category?: Category; // Joined field
+}
