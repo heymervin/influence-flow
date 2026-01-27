@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Clock, TrendingUp, TrendingDown, FileText, Copy } from 'lucide-react';
+import { Clock, TrendingUp, TrendingDown, FileText } from 'lucide-react';
 import { QuoteRevision, supabase } from './supabaseClient';
 
 interface QuoteRevisionHistoryProps {
@@ -193,23 +193,9 @@ const QuoteRevisionHistory: React.FC<QuoteRevisionHistoryProps> = ({ quoteId }) 
                     )}
                   </div>
 
-                  <div className="flex flex-col items-end gap-2">
-                    <div className="flex items-center gap-1 text-xs text-gray-500">
-                      <Clock className="w-3 h-3" />
-                      <span>{formatDate(revision.created_at)}</span>
-                    </div>
-
-                    {/* Actions */}
-                    <button
-                      className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
-                      onClick={() => {
-                        // TODO: Implement "Duplicate as new version" functionality
-                        console.log('Duplicate version:', revision.revision_number);
-                      }}
-                    >
-                      <Copy className="w-3 h-3" />
-                      Duplicate
-                    </button>
+                  <div className="flex items-center gap-1 text-xs text-gray-500">
+                    <Clock className="w-3 h-3" />
+                    <span>{formatDate(revision.created_at)}</span>
                   </div>
                 </div>
               </div>
