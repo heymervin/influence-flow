@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Trash2, X, HelpCircle, Save, FileText, Check, AlertCircle, Eye, Percent, DollarSign } from 'lucide-react';
 import { useAuth } from './AuthContext';
-import { supabase } from './supabaseClient';
+import { supabase, Quote, QuoteItem } from './supabaseClient';
 import { useTalents, useDeliverables, useClients, useTermsTemplates } from './hooks';
 import Textarea from './Textarea';
 import Button from './Button';
@@ -11,6 +11,8 @@ import TalentSearchFilter from './TalentSearchFilter';
 interface QuoteBuilderProps {
   onBack: () => void;
   onSuccess?: () => void;
+  editQuote?: Quote | null;
+  editQuoteItems?: QuoteItem[];
 }
 
 interface ClientFormData {
@@ -107,12 +109,15 @@ const DeleteConfirmModal = ({
   );
 };
 
-const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
+const QuoteBuilder = ({ onBack, onSuccess, editQuote, editQuoteItems }: QuoteBuilderProps) => {
   const { user, profile } = useAuth();
   const { talents } = useTalents();
   const { deliverables, loading: deliverablesLoading } = useDeliverables();
   const { clients, loading: clientsLoading } = useClients();
   const { templates: termsTemplates } = useTermsTemplates();
+
+  // Edit mode detection
+  const isEditMode = !!editQuote;
 
   // Client & Campaign
   const [selectedClientId, setSelectedClientId] = useState('');
@@ -158,6 +163,38 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
 
   // Rate Card Mode
   const [rateCardTalentId, setRateCardTalentId] = useState('');
+
+  // Populate form when editing
+  useEffect(() => {
+    if (isEditMode && editQuote && editQuoteItems && deliverables.length > 0) {
+      // Populate basic fields
+      setSelectedClientId(editQuote.client_id || '');
+      setCampaignName(editQuote.campaign_name || '');
+      setValidUntil(editQuote.valid_until || '');
+      setNotes(editQuote.notes || '');
+      setTermsAndConditions(editQuote.terms_and_conditions || DEFAULT_TERMS);
+      setCommissionRate(editQuote.tax_rate?.toString() || '15');
+
+      // Convert editQuoteItems to lineItems format
+      const convertedItems: QuoteLineItem[] = editQuoteItems.map(item => {
+        // Find deliverable by matching rate_type to deliverable name
+        const deliverable = deliverables.find(d => d.name === item.rate_type);
+
+        return {
+          id: item.id,
+          talent_id: item.talent_id || '',
+          talent_name: item.talent_name,
+          deliverable_id: deliverable?.id || '',
+          deliverable_name: item.rate_type,
+          deliverable_category: deliverable?.category || 'content',
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+        };
+      });
+
+      setLineItems(convertedItems);
+    }
+  }, [isEditMode, editQuote, editQuoteItems, deliverables]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -346,67 +383,137 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
         clientName = client?.name || '';
       }
 
-      // Generate quote number
-      const timestamp = Date.now().toString(36).toUpperCase();
-      const quoteNumber = `Q-${timestamp}`;
+      // Prepare line items data
+      const prepareItemsData = (quoteId: string) => {
+        return lineItems.map(item => {
+          const isAgencyFee = item.deliverable_category === 'agency_fee';
+          const itemTotal = isAgencyFee ? item.unit_price : item.unit_price * item.quantity;
+          const commAmount = Math.round(itemTotal * (parseFloat(commissionRate) / 100));
+          const asfAmount = isAgencyFee ? 0 : (enableAsf ? Math.round(itemTotal * (parseFloat(asfRate) / 100)) : 0);
 
-      // Create quote
-      const { data: newQuote, error: quoteError } = await supabase
-        .from('quotes')
-        .insert([{
-          user_id: user.id,
-          client_id: clientId,
-          client_name: clientName,
-          campaign_name: campaignName.trim(),
-          status: asDraft ? 'draft' : 'draft',
-          quote_number: quoteNumber,
-          subtotal: totals.talentFees,
-          tax_rate: parseFloat(commissionRate),
-          tax_amount: totals.commissions + totals.asfTotal,
-          total_amount: totals.total,
-          valid_until: validUntil || null,
-          notes: notes.trim() || null,
-          terms_and_conditions: termsAndConditions.trim(),
-        }])
-        .select()
-        .single();
+          return {
+            quote_id: quoteId,
+            talent_id: item.talent_id,
+            talent_name: item.talent_name,
+            description: isAgencyFee
+              ? `Agency Service Fee (${item.quantity} month${item.quantity > 1 ? 's' : ''})`
+              : `${item.talent_name} - ${item.deliverable_name}`,
+            rate_type: item.deliverable_name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            line_total: itemTotal + commAmount + asfAmount,
+          };
+        });
+      };
 
-      if (quoteError) throw quoteError;
+      if (isEditMode && editQuote) {
+        // UPDATE MODE
+        const previousTotal = editQuote.total_amount;
 
-      // Create line items
-      const itemsData = lineItems.map(item => {
-        const isAgencyFee = item.deliverable_category === 'agency_fee';
-        const itemTotal = isAgencyFee ? item.unit_price : item.unit_price * item.quantity;
-        const commAmount = Math.round(itemTotal * (parseFloat(commissionRate) / 100));
-        const asfAmount = isAgencyFee ? 0 : (enableAsf ? Math.round(itemTotal * (parseFloat(asfRate) / 100)) : 0);
+        // Update the quote
+        const { error: updateError } = await supabase
+          .from('quotes')
+          .update({
+            client_id: clientId,
+            client_name: clientName,
+            campaign_name: campaignName.trim(),
+            subtotal: totals.talentFees,
+            tax_rate: parseFloat(commissionRate),
+            tax_amount: totals.commissions + totals.asfTotal,
+            total_amount: totals.total,
+            valid_until: validUntil || null,
+            notes: notes.trim() || null,
+            terms_and_conditions: termsAndConditions.trim(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editQuote.id);
 
-        return {
-          quote_id: newQuote.id,
-          talent_id: item.talent_id,
-          talent_name: item.talent_name,
-          description: isAgencyFee
-            ? `Agency Service Fee (${item.quantity} month${item.quantity > 1 ? 's' : ''})`
-            : `${item.talent_name} - ${item.deliverable_name}`,
-          rate_type: item.deliverable_name,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          line_total: itemTotal + commAmount + asfAmount,
-        };
-      });
+        if (updateError) throw updateError;
 
-      const { error: itemsError } = await supabase
-        .from('quote_items')
-        .insert(itemsData);
+        // Delete existing quote items
+        const { error: deleteError } = await supabase
+          .from('quote_items')
+          .delete()
+          .eq('quote_id', editQuote.id);
 
-      if (itemsError) throw itemsError;
+        if (deleteError) throw deleteError;
+
+        // Insert new quote items
+        const itemsData = prepareItemsData(editQuote.id);
+        const { error: itemsError } = await supabase
+          .from('quote_items')
+          .insert(itemsData);
+
+        if (itemsError) throw itemsError;
+
+        // Create revision record if total changed
+        if (previousTotal !== totals.total) {
+          // Get the latest revision number
+          const { data: revisions } = await supabase
+            .from('quote_revisions')
+            .select('revision_number')
+            .eq('quote_id', editQuote.id)
+            .order('revision_number', { ascending: false })
+            .limit(1);
+
+          const nextRevisionNumber = (revisions && revisions.length > 0)
+            ? revisions[0].revision_number + 1
+            : 1;
+
+          await supabase.from('quote_revisions').insert({
+            quote_id: editQuote.id,
+            revision_number: nextRevisionNumber,
+            changes_summary: `Total changed from ${(previousTotal / 100).toFixed(2)} to ${(totals.total / 100).toFixed(2)}`,
+            previous_total: previousTotal,
+            new_total: totals.total,
+            created_by: user.id,
+          });
+        }
+      } else {
+        // CREATE MODE
+        // Generate quote number
+        const timestamp = Date.now().toString(36).toUpperCase();
+        const quoteNumber = `Q-${timestamp}`;
+
+        // Create quote
+        const { data: newQuote, error: quoteError } = await supabase
+          .from('quotes')
+          .insert([{
+            user_id: user.id,
+            client_id: clientId,
+            client_name: clientName,
+            campaign_name: campaignName.trim(),
+            status: asDraft ? 'draft' : 'draft',
+            quote_number: quoteNumber,
+            subtotal: totals.talentFees,
+            tax_rate: parseFloat(commissionRate),
+            tax_amount: totals.commissions + totals.asfTotal,
+            total_amount: totals.total,
+            valid_until: validUntil || null,
+            notes: notes.trim() || null,
+            terms_and_conditions: termsAndConditions.trim(),
+          }])
+          .select()
+          .single();
+
+        if (quoteError) throw quoteError;
+
+        // Create line items
+        const itemsData = prepareItemsData(newQuote.id);
+        const { error: itemsError } = await supabase
+          .from('quote_items')
+          .insert(itemsData);
+
+        if (itemsError) throw itemsError;
+      }
 
       if (onSuccess) {
         onSuccess();
       }
       onBack();
     } catch (error: any) {
-      console.error('Error creating quote:', error);
-      setSubmitError(error.message || 'Failed to create quote. Please try again.');
+      console.error('Error saving quote:', error);
+      setSubmitError(error.message || `Failed to ${isEditMode ? 'update' : 'create'} quote. Please try again.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -430,8 +537,12 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
             Back
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Create New Quote</h1>
-            <p className="text-sm text-gray-500 mt-1">Build a professional quote for your client</p>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {isEditMode ? `Edit Quote ${editQuote?.quote_number || ''}` : 'Create New Quote'}
+            </h1>
+            <p className="text-sm text-gray-500 mt-1">
+              {isEditMode ? 'Update your quote details' : 'Build a professional quote for your client'}
+            </p>
           </div>
         </div>
 
@@ -912,7 +1023,7 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
             <div className="text-xs text-gray-400">
               <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-500">⌘S</kbd> Save Draft
               <span className="mx-2">|</span>
-              <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-500">⌘↵</kbd> Create Quote
+              <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-500">⌘↵</kbd> {isEditMode ? 'Update Quote' : 'Create Quote'}
             </div>
             <div className="flex items-center gap-3">
               <Button variant="secondary" onClick={onBack}>
@@ -926,16 +1037,18 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
               >
                 Preview
               </Button>
-              <Button
-                variant="secondary"
-                icon={Save}
-                onClick={() => handleSubmit(true)}
-                disabled={isSubmitting}
-              >
-                Save Draft
-              </Button>
+              {!isEditMode && (
+                <Button
+                  variant="secondary"
+                  icon={Save}
+                  onClick={() => handleSubmit(true)}
+                  disabled={isSubmitting}
+                >
+                  Save Draft
+                </Button>
+              )}
               <Button onClick={() => handleSubmit(false)} disabled={isSubmitting}>
-                {isSubmitting ? 'Creating...' : 'Create Quote'}
+                {isSubmitting ? (isEditMode ? 'Updating...' : 'Creating...') : (isEditMode ? 'Update Quote' : 'Create Quote')}
               </Button>
             </div>
           </div>
@@ -1080,7 +1193,7 @@ const QuoteBuilder = ({ onBack, onSuccess }: QuoteBuilderProps) => {
                 Close
               </Button>
               <Button onClick={() => { setShowPreview(false); handleSubmit(false); }} disabled={isSubmitting}>
-                {isSubmitting ? 'Creating...' : 'Create Quote'}
+                {isSubmitting ? (isEditMode ? 'Updating...' : 'Creating...') : (isEditMode ? 'Update Quote' : 'Create Quote')}
               </Button>
             </div>
           </div>

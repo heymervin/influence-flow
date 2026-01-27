@@ -14,6 +14,7 @@ import {
   Building2
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
+import { Quote, QuoteItem } from './supabaseClient';
 import Login from './Login';
 import DashboardHome from './DashboardHome';
 import TalentRoster from './TalentRoster';
@@ -46,12 +47,27 @@ const AppContent = () => {
   const [previousView, setPreviousView] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Edit quote state
+  const [editQuote, setEditQuote] = useState<Quote | null>(null);
+  const [editQuoteItems, setEditQuoteItems] = useState<QuoteItem[]>([]);
+
   const navigateToQuoteBuilder = () => {
     setPreviousView(currentView);
+    setEditQuote(null);
+    setEditQuoteItems([]);
+    setCurrentView('quote-builder');
+  };
+
+  const navigateToEditQuote = (quote: Quote, items: QuoteItem[]) => {
+    setPreviousView(currentView);
+    setEditQuote(quote);
+    setEditQuoteItems(items);
     setCurrentView('quote-builder');
   };
 
   const navigateBack = () => {
+    setEditQuote(null);
+    setEditQuoteItems([]);
     setCurrentView(previousView);
   };
 
@@ -59,7 +75,7 @@ const AppContent = () => {
     switch (currentView) {
       case 'dashboard': return <DashboardHome />;
       case 'talents': return <TalentRoster />;
-      case 'quotes': return <Quotes onCreateQuote={navigateToQuoteBuilder} />;
+      case 'quotes': return <Quotes onCreateQuote={navigateToQuoteBuilder} onEditQuote={navigateToEditQuote} />;
       case 'clients': return <Clients />;
       case 'metrics': return <Analytics />;
       case 'settings': return <Settings />;
@@ -67,8 +83,12 @@ const AppContent = () => {
         <QuoteBuilder
           onBack={navigateBack}
           onSuccess={() => {
+            setEditQuote(null);
+            setEditQuoteItems([]);
             setCurrentView('quotes');
           }}
+          editQuote={editQuote}
+          editQuoteItems={editQuoteItems}
         />
       );
       default: return <DashboardHome />;

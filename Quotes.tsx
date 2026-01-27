@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Download, Send, FileText, Search, Filter, History } from 'lucide-react';
+import { Plus, Download, Send, FileText, Search, Filter, History, Edit2 } from 'lucide-react';
 import { useQuotes } from './hooks';
 import { Quote, QuoteItem, supabase } from './supabaseClient';
 import { QuotePDFDownloadButton } from './QuotePDF';
@@ -11,15 +11,40 @@ import { useAuth } from './AuthContext';
 
 interface QuotesProps {
   onCreateQuote?: () => void;
+  onEditQuote?: (quote: Quote, items: QuoteItem[]) => void;
 }
 
-const Quotes = ({ onCreateQuote }: QuotesProps) => {
+const Quotes = ({ onCreateQuote, onEditQuote }: QuotesProps) => {
   const { profile } = useAuth();
   const { quotes, loading, error, refetch } = useQuotes();
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
+
+  // Check if quote can be edited (only draft or sent status)
+  const canEditQuote = (status: string) => {
+    return status === 'draft' || status === 'sent';
+  };
+
+  // Handle edit quote
+  const handleEditQuote = async (quote: Quote) => {
+    // Fetch quote items if not already loaded or if different quote
+    let items = quoteItems;
+    if (!items.length || (selectedQuote && selectedQuote.id !== quote.id)) {
+      const { data } = await supabase
+        .from('quote_items')
+        .select('*')
+        .eq('quote_id', quote.id)
+        .order('created_at', { ascending: true });
+      items = data || [];
+    }
+
+    handleCloseDetailModal();
+    if (onEditQuote) {
+      onEditQuote(quote, items);
+    }
+  };
 
   const formatCurrency = (cents: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -172,6 +197,16 @@ const Quotes = ({ onCreateQuote }: QuotesProps) => {
                         >
                           View
                         </Button>
+                        {canEditQuote(quote.status) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon={Edit2}
+                            onClick={() => handleEditQuote(quote)}
+                          >
+                            Edit
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -287,6 +322,16 @@ const Quotes = ({ onCreateQuote }: QuotesProps) => {
 
             {/* Action Buttons */}
             <div className="flex gap-3 pt-4 border-t border-gray-200">
+              {canEditQuote(selectedQuote.status) && (
+                <Button
+                  variant="secondary"
+                  icon={Edit2}
+                  onClick={() => handleEditQuote(selectedQuote)}
+                >
+                  Edit Quote
+                </Button>
+              )}
+
               <QuotePDFDownloadButton
                 quote={selectedQuote}
                 items={quoteItems}
